@@ -45,7 +45,7 @@ db.sqlite3
 media
 
 # VS Code
-.vscode/
+# (Include workspace settings if you want them tracked. .vscode/ removed to allow tasks in repo)
 
 # Virtual environment
 .venv/
