@@ -4,7 +4,7 @@
     {
       "label": "Run Django server",
       "type": "shell",
-      "command": ".venv/bin/python manage.py runserver",
+  "command": ".venv/bin/python manage.py runserver 127.0.0.1:8002",
       "group": {
         "kind": "build",
         "isDefault": true
