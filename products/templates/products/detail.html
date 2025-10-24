@@ -1,0 +1,10 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Detalhe do Produto{% endblock %}
+
+{% block content %}
+  <h1 class="title">{{ product.name }}</h1>
+  <p><strong>Preço:</strong> {{ product.price }}</p>
+  <p>{{ product.description }}</p>
+  <p><a class="button" href="{% url 'products:update' product.pk %}">Editar</a></p>
+{% endblock %}

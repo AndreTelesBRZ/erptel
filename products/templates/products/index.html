@@ -1,0 +1,29 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Produtos{% endblock %}
+
+{% block content %}
+  <h1 class="title">Produtos</h1>
+  <p><a class="button is-primary" href="{% url 'products:create' %}">Criar Produto</a>
+  <a class="button" href="{% url 'products:report' %}">Relatório</a></p>
+  <table class="table is-fullwidth">
+    <thead>
+      <tr><th>Name</th><th>Price</th><th>Created</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for p in products %}
+      <tr>
+        <td><a href="{% url 'products:detail' p.pk %}">{{ p.name }}</a></td>
+        <td>{{ p.price }}</td>
+        <td>{{ p.created_at }}</td>
+        <td>
+          <a class="button is-small" href="{% url 'products:update' p.pk %}">Editar</a>
+          <a class="button is-small is-danger" href="{% url 'products:delete' p.pk %}">Remover</a>
+        </td>
+      </tr>
+      {% empty %}
+  <tr><td colspan="4">Nenhum produto encontrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

@@ -1,0 +1,12 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Relatório de Produtos{% endblock %}
+
+{% block content %}
+  <h1 class="title">Relatório de Produtos</h1>
+  <p>Total de produtos: {{ total }}</p>
+  <p>Preço médio: {{ avg_price }}</p>
+  {% if user.is_authenticated %}
+    <p><a class="button" href="{% url 'products:report_csv' %}">Download CSV</a></p>
+  {% endif %}
+{% endblock %}

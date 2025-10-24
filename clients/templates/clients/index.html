@@ -1,0 +1,29 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Clientes{% endblock %}
+
+{% block content %}
+  <h1 class="title">Clientes</h1>
+  <p><a class="button is-primary" href="{% url 'clients:create' %}">Criar Cliente</a>
+  <a class="button" href="{% url 'clients:report' %}">Relatório</a></p>
+  <table class="table is-fullwidth">
+    <thead>
+      <tr><th>Name</th><th>Email</th><th>Created</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for c in clients %}
+      <tr>
+  <td><a href="{% url 'clients:detail' c.pk %}">{{ c.first_name }} {{ c.last_name }}</a></td>
+        <td>{{ c.email }}</td>
+        <td>{{ c.created_at }}</td>
+        <td>
+          <a class="button is-small" href="{% url 'clients:update' c.pk %}">Edit</a>
+          <a class="button is-small is-danger" href="{% url 'clients:delete' c.pk %}">Delete</a>
+        </td>
+      </tr>
+      {% empty %}
+  <tr><td colspan="4">Nenhum cliente encontrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

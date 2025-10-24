@@ -1,0 +1,11 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Relatório de Clientes{% endblock %}
+
+{% block content %}
+  <h1 class="title">Relatório de Clientes</h1>
+  <p>Total de clientes: {{ total }}</p>
+  {% if user.is_authenticated %}
+    <p><a class="button" href="{% url 'clients:report_csv' %}">Download CSV</a></p>
+  {% endif %}
+{% endblock %}

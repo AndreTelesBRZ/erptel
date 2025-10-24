@@ -1,0 +1,14 @@
+{% extends 'core/base.html' %}
+
+{% block content %}
+<section class="section">
+  <div class="container">
+    <h1 class="title">Importar Produtos (CSV)</h1>
+    <form method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      {{ form.as_p }}
+      <button class="button is-primary" type="submit">Enviar</button>
+    </form>
+  </div>
+</section>
+{% endblock %}

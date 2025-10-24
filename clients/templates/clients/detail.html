@@ -1,0 +1,10 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Detalhe do Cliente{% endblock %}
+
+{% block content %}
+  <h1 class="title">{{ client.first_name }} {{ client.last_name }}</h1>
+  <p><strong>Email:</strong> {{ client.email }}</p>
+  <p><strong>Telefone:</strong> {{ client.phone }}</p>
+  <p><a class="button" href="{% url 'clients:update' client.pk %}">Editar</a></p>
+{% endblock %}

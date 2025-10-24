@@ -1,0 +1,42 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+  <h1 class="title">Painel</h1>
+  <div class="columns">
+    <div class="column">
+      <div class="box">
+  <h2 class="subtitle">Total de Produtos</h2>
+        <p>{{ total_products }}</p>
+        <p><a class="button" href="{% url 'products:index' %}">View Products</a></p>
+      </div>
+    </div>
+    <div class="column">
+      <div class="box">
+  <h2 class="subtitle">Total de Clientes</h2>
+        <p>{{ total_clients }}</p>
+        <p><a class="button" href="{% url 'clients:index' %}">View Clients</a></p>
+      </div>
+    </div>
+  </div>
+
+  <h2 class="subtitle">Produtos Recentes</h2>
+  <ul>
+    {% for p in recent_products %}
+      <li><a href="{% url 'products:detail' p.pk %}">{{ p.name }}</a> — {{ p.price }}</li>
+    {% empty %}
+      <li>No recent products.</li>
+    {% endfor %}
+  </ul>
+
+  <h2 class="subtitle">Clientes Recentes</h2>
+  <ul>
+    {% for c in recent_clients %}
+      <li><a href="{% url 'clients:detail' c.pk %}">{{ c.first_name }} {{ c.last_name }}</a></li>
+    {% empty %}
+      <li>No recent clients.</li>
+    {% endfor %}
+  </ul>
+
+{% endblock %}

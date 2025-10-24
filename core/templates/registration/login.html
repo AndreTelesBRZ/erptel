@@ -1,0 +1,23 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Login{% endblock %}
+
+{% block content %}
+  <h1 class="title">Entrar</h1>
+  <form method="post">
+    {% csrf_token %}
+    <div class="field">
+  <label class="label">Nome de usuário</label>
+      <div class="control">
+        <input class="input" type="text" name="username" required autofocus>
+      </div>
+    </div>
+    <div class="field">
+  <label class="label">Senha</label>
+      <div class="control">
+        <input class="input" type="password" name="password" required>
+      </div>
+    </div>
+  <button class="button is-primary" type="submit">Entrar</button>
+  </form>
+{% endblock %}
