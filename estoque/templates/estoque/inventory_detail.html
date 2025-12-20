@@ -1,0 +1,298 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Inventário {{ inventory.name }}{% endblock %}
+
+{% block hero_title %}Inventário: {{ inventory.name }}{% endblock %}
+{% block hero_subtitle %}
+  Status atual: {{ inventory.get_status_display }}{% if active_company %} · Empresa: {{ active_company.trade_name|default:active_company.name }}{% endif %}
+{% endblock %}
+{% block hero_actions %}
+  <a class="button is-light" href="{% url 'estoque:inventory_list' %}">Voltar</a>
+  {% if has_items %}
+    <a class="button is-secondary" href="{% url 'estoque:inventory_export' inventory.pk %}">Exportar lote</a>
+  {% endif %}
+  {% if inventory.status == 'in_progress' and has_items %}
+    <a class="button is-secondary" href="{% url 'estoque:inventory_import' inventory.pk %}">Importar contagens</a>
+  {% endif %}
+  {% if inventory.status == 'draft' %}
+    <form method="post" action="{% url 'estoque:inventory_start' inventory.pk %}" style="display:inline;">
+      {% csrf_token %}
+      <button class="button is-primary" type="submit">Iniciar contagem</button>
+    </form>
+  {% elif inventory.status == 'in_progress' %}
+    <form method="post" action="{% url 'estoque:inventory_close' inventory.pk %}" style="display:inline;">
+      {% csrf_token %}
+      <button class="button is-warning" type="submit">Fechar inventário</button>
+    </form>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  <section class="data-section">
+    <div class="stat-grid">
+      <div class="card metric-card">
+        <span class="metric-label">{% if inventory.status == 'draft' %}Produtos selecionados{% else %}Itens congelados{% endif %}</span>
+        <div class="metric-value">
+          {% if inventory.status == 'draft' %}
+            {{ preview_total|default:0 }}
+          {% else %}
+            {{ items|length }}
+          {% endif %}
+        </div>
+      </div>
+      <div class="card metric-card">
+        <span class="metric-label">Quantidade congelada</span>
+        <div class="metric-value">{{ totals.frozen|floatformat:2 }}</div>
+      </div>
+      {% if inventory.status != 'draft' %}
+        <div class="card metric-card">
+          <span class="metric-label">1ª contagem</span>
+          <div class="metric-value">{{ totals.counted|floatformat:2 }}</div>
+        </div>
+        {% if has_recount %}
+          <div class="card metric-card">
+            <span class="metric-label">Recontagem</span>
+            <div class="metric-value">{{ totals.recount|floatformat:2 }}</div>
+          </div>
+        {% endif %}
+        <div class="card metric-card">
+          <span class="metric-label">Quantidade atual</span>
+          <div class="metric-value">{{ totals.effective|floatformat:2 }}</div>
+        </div>
+        <div class="card metric-card">
+          <span class="metric-label">Diferença total</span>
+          <div class="metric-value">{{ totals.difference|floatformat:2 }}</div>
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="box data-card">
+      <header>
+        <h2>Itens do inventário</h2>
+      </header>
+
+      {% if inventory.status == 'draft' %}
+        <p class="small text-muted">
+          Ajuste os filtros para selecionar quais produtos farão parte deste inventário. Ao iniciar, as quantidades serão congeladas conforme a seleção atual.
+        </p>
+        {% if filter_form %}
+          <form method="post" class="inventory-filter-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="update_filters">
+            <div class="columns is-multiline">
+              <div class="column is-half">
+                <div class="field">
+                  <label class="label" for="{{ filter_form.name.id_for_label }}">Nome</label>
+                  <div class="control">
+                    {{ filter_form.name }}
+                  </div>
+                  {% if filter_form.name.errors %}
+                    <p class="help is-danger">{{ filter_form.name.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-half">
+                <div class="field">
+                  <label class="label" for="{{ filter_form.filter_query.id_for_label }}">Filtro de produtos</label>
+                  <div class="control">
+                    {{ filter_form.filter_query }}
+                  </div>
+                  <p class="help">Use termos como nome, código, referência ou descrição.</p>
+                  {% if filter_form.filter_query.errors %}
+                    <p class="help is-danger">{{ filter_form.filter_query.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-half">
+                <div class="field">
+                  <label class="label" for="{{ filter_form.filter_group.id_for_label }}">Grupo</label>
+                  <div class="control select is-fullwidth">
+                    {{ filter_form.filter_group }}
+                  </div>
+                </div>
+              </div>
+              <div class="column is-half">
+                <div class="field">
+                  <label class="label" for="{{ filter_form.filter_subgroup.id_for_label }}">Subgrupo</label>
+                  <div class="control select is-fullwidth">
+                    {{ filter_form.filter_subgroup }}
+                  </div>
+                </div>
+              </div>
+              <div class="column is-half">
+                <div class="field">
+                  <label class="checkbox">
+                    {{ filter_form.filter_in_stock_only }}
+                    Incluir apenas produtos com estoque maior que zero
+                  </label>
+                </div>
+              </div>
+              <div class="column is-half">
+                <div class="field">
+                  <label class="checkbox">
+                    {{ filter_form.filter_below_min_stock }}
+                    Incluir apenas produtos abaixo do estoque mínimo
+                  </label>
+                </div>
+              </div>
+              <div class="column is-full">
+                <div class="field">
+                  <label class="label" for="{{ filter_form.notes.id_for_label }}">Observações</label>
+                  <div class="control">
+                    {{ filter_form.notes }}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="field is-grouped">
+              <div class="control">
+                <button class="button is-primary" type="submit">Atualizar filtros</button>
+              </div>
+              <div class="control">
+                <span class="tag is-light">Produtos selecionados: {{ preview_total }}</span>
+              </div>
+            </div>
+          </form>
+        {% elif has_manual_selection %}
+          <div class="notification is-info is-light">
+            Os produtos deste inventário foram escolhidos manualmente a partir da seleção na listagem.
+          </div>
+          <p class="tag is-light">Produtos selecionados: {{ preview_total }}</p>
+        {% endif %}
+        <hr>
+        <div class="table-container">
+          <table class="table is-fullwidth is-hoverable">
+            <thead>
+              <tr>
+                <th>Produto</th>
+                <th>Código</th>
+                <th>Referência</th>
+                <th>Grupo</th>
+                <th>Subgrupo</th>
+                <th>Estoque atual</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in preview_products %}
+                {% with product=row.product %}
+                <tr>
+                  <td>{{ product.name }}</td>
+                  <td>{{ product.code|default:'—' }}</td>
+                  <td>{{ product.reference|default:'—' }}</td>
+                  <td>{{ product.product_group|default:'—' }}</td>
+                  <td>{{ product.product_subgroup|default:'—' }}</td>
+                  <td>{{ row.stock|default:'—' }}</td>
+                </tr>
+                {% endwith %}
+              {% empty %}
+                <tr>
+                  <td colspan="6">Nenhum produto encontrado com os filtros atuais.</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <p class="small text-muted">Pré-visualização limitada aos 200 primeiros itens.</p>
+        </div>
+      {% else %}
+        {% if formset %}
+          <form method="post">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="update_counts">
+            {{ formset.management_form }}
+            <table class="table is-fullwidth is-hoverable">
+              <thead>
+                <tr>
+                  <th>Produto</th>
+                  <th>Quantidade congelada</th>
+                  <th>Quantidade contada</th>
+                  <th>Quantidade recontada</th>
+                  <th>Diferença</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for form in formset %}
+                  {% with item=form.instance %}
+                    <tr>
+                      <td>
+                        {{ item.product.name }}<br>
+                        <span class="small text-muted">Código: {{ item.product.code|default:"—" }}</span>
+                        {{ form.id }}
+                      </td>
+                      <td>{{ item.frozen_quantity|floatformat:2 }}</td>
+                      <td>
+                        {{ form.counted_quantity }}
+                        {% if form.counted_quantity.errors %}
+                          <p class="help is-danger">{{ form.counted_quantity.errors.0 }}</p>
+                        {% endif %}
+                      </td>
+                      <td>
+                        {{ form.recount_quantity }}
+                        {% if form.recount_quantity.errors %}
+                          <p class="help is-danger">{{ form.recount_quantity.errors.0 }}</p>
+                        {% endif %}
+                      </td>
+                      <td>{{ item.difference|floatformat:2 }}</td>
+                    </tr>
+                  {% endwith %}
+                {% empty %}
+                  <tr><td colspan="5">Nenhum item disponível.</td></tr>
+                {% endfor %}
+              </tbody>
+            </table>
+            <div class="field">
+              <button class="button is-primary" type="submit">Salvar contagens</button>
+            </div>
+          </form>
+        {% else %}
+          <table class="table is-fullwidth is-hoverable">
+            <thead>
+              <tr>
+                <th>Produto</th>
+                <th>Quantidade congelada</th>
+                <th>Quantidade contada</th>
+                <th>Quantidade recontada</th>
+                <th>Quantidade final</th>
+                <th>Diferença</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for item in items %}
+                <tr>
+                  <td>
+                    {{ item.product.name }}<br>
+                    <span class="small text-muted">Código: {{ item.product.code|default:"—" }}</span>
+                  </td>
+                  <td>{{ item.frozen_quantity|floatformat:2 }}</td>
+                  <td>
+                    {% if item.counted_quantity is not None %}
+                      {{ item.counted_quantity|floatformat:2 }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if item.recount_quantity is not None %}
+                      {{ item.recount_quantity|floatformat:2 }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if inventory.status == 'closed' %}
+                      {{ item.final_quantity|default:item.effective_quantity|floatformat:2 }}
+                    {% else %}
+                      {{ item.effective_quantity|floatformat:2 }}
+                    {% endif %}
+                  </td>
+                  <td>{{ item.difference|floatformat:2 }}</td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="6">Nenhum item disponível.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        {% endif %}
+      {% endif %}
+    </div>
+  </section>
+{% endblock %}

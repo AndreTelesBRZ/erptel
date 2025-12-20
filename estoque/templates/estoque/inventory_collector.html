@@ -1,0 +1,219 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Inventário · Coletor{% endblock %}
+
+{% block extra_head %}
+  {{ block.super }}
+  <style>
+    .inventory-collector-table td,
+    .inventory-collector-table th {
+      font-size: 0.82rem;
+      vertical-align: middle;
+    }
+    .inventory-collector-table th.description-col,
+    .inventory-collector-table td.description-cell {
+      width: 32%;
+      min-width: 320px;
+      white-space: normal;
+      word-break: break-word;
+      line-height: 1.2;
+      font-size: 0.78rem;
+    }
+    .inventory-collector-table .input.is-small {
+      max-width: 110px;
+    }
+    .collector-extra-counts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.25rem;
+    }
+    .collector-extra-counts .tag {
+      font-size: 0.7rem;
+    }
+  </style>
+{% endblock %}
+
+{% block hero_title %}Inventário · Coletor{% endblock %}
+{% block hero_subtitle %}Importe, registre contagens sequenciais e exporte para o coletor físico.{% endblock %}
+{% block hero_actions %}
+  <a class="button is-light" href="{% url 'estoque:inventory_list' %}">Voltar</a>
+  {% if has_items %}
+    <form method="post" style="display:inline;">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="finalize">
+      <button class="button is-warning" type="submit">Encerrar inventário</button>
+    </form>
+    <a class="button is-secondary" href="{% url 'estoque:inventory_collector_export' %}">Exportar arquivo</a>
+    <form method="post" style="display:inline;" onsubmit="return confirm('Confirma excluir todos os itens importados? Esta ação não pode ser desfeita.');">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="clear">
+      <button class="button is-danger" type="submit">Excluir itens</button>
+    </form>
+  {% endif %}
+{% endblock %}
+
+{% block content %}
+  <section class="data-section">
+    <div class="columns is-multiline">
+      <div class="column is-full">
+        <div class="box data-card">
+          <header>
+            <h2>Importar arquivo do coletor</h2>
+          </header>
+          <form method="post" enctype="multipart/form-data" class="import-form">
+            {% csrf_token %}
+            <input type="hidden" name="action" value="import">
+            <div class="field">
+              <label class="label" for="{{ import_form.arquivo.id_for_label }}">{{ import_form.arquivo.label }}</label>
+              <div class="file has-name is-fullwidth">
+                <label class="file-label">
+                  {{ import_form.arquivo }}
+                  <span class="file-cta">
+                    <span class="file-label">Escolher arquivo…</span>
+                  </span>
+                  <span class="file-name js-file-name">Nenhum arquivo selecionado</span>
+                </label>
+              </div>
+              {% if import_form.arquivo.errors %}
+                <p class="help is-danger">{{ import_form.arquivo.errors.0 }}</p>
+              {% endif %}
+              <p class="help">Layout esperado: <code>CódigoProduto ;Descrição ;CódigoLoja ;CódigoLocal ;Quantidade</code>.</p>
+            </div>
+            <div class="field is-grouped is-align-items-center">
+              <div class="control">
+                <button class="button is-primary" type="submit">Importar arquivo</button>
+              </div>
+              {% if has_items %}
+                <div class="control">
+                  <span class="tag is-light">Itens atuais: {{ totals.total }}</span>
+                  <span class="tag is-light">Quantidade total: {{ totals.total_quantity|floatformat:3 }}</span>
+                  {% if totals.total_closed %}
+                    <span class="tag is-success is-light">Encerrados: {{ totals.total_closed }}</span>
+                  {% endif %}
+                </div>
+              {% endif %}
+            </div>
+          </form>
+        </div>
+      </div>
+      <div class="column is-full">
+        <div class="box data-card">
+          <header>
+            <h2>Itens importados</h2>
+          </header>
+          {% if has_items %}
+            <form method="post">
+              {% csrf_token %}
+              <input type="hidden" name="action" value="save">
+              {{ formset.management_form }}
+              <div class="table-container">
+                <table class="table is-fullwidth is-hoverable inventory-collector-table">
+                  <thead>
+                    <tr>
+                      <th>Código</th>
+                      <th>PLU</th>
+                      <th class="description-col">Descrição</th>
+                      <th>Loja</th>
+                      <th>Local</th>
+                      <th>Extras</th>
+                      <th>1ª contagem</th>
+                      <th>2ª contagem</th>
+                      <th>Nova contagem (+)</th>
+                      <th>Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {% for form in formset %}
+                      {% with item=form.instance %}
+                        <tr>
+                          <td>
+                            <span class="has-text-weight-medium">{{ item.codigo_produto }}</span>
+                            {{ form.id }}
+                          </td>
+                          <td>{{ item.plu_code|default:"—" }}</td>
+                          <td class="description-cell">
+                            {% if item.product %}
+                              <strong>{{ item.product.name }}</strong>
+                              {% if item.descricao %}
+                                <br>
+                                <span class="small text-muted">Arquivo: {{ item.descricao }}</span>
+                              {% endif %}
+                            {% else %}
+                              {{ item.descricao|default:"—" }}
+                            {% endif %}
+                          </td>
+                          <td>{{ item.loja }}</td>
+                          <td>{{ item.local }}</td>
+                          <td>
+                            {% if form.extra_counts %}
+                              <div class="collector-extra-counts">
+                                {% for value in form.extra_counts %}
+                                  <span class="tag is-info is-light">{{ forloop.counter|add:2 }}ª: {{ value|floatformat:3 }}</span>
+                                {% endfor %}
+                              </div>
+                            {% else %}
+                              <span class="tag is-light is-rounded">—</span>
+                            {% endif %}
+                          </td>
+                          <td>
+                            {{ form.count_1 }}
+                            {% if form.count_1.errors %}
+                              <p class="help is-danger">{{ form.count_1.errors.0 }}</p>
+                            {% endif %}
+                          </td>
+                          <td>
+                            {{ form.count_2 }}
+                            {% if form.count_2.errors %}
+                              <p class="help is-danger">{{ form.count_2.errors.0 }}</p>
+                            {% endif %}
+                          </td>
+                          <td>
+                            {{ form.new_count }}
+                            {% if form.new_count.errors %}
+                              <p class="help is-danger">{{ form.new_count.errors.0 }}</p>
+                            {% endif %}
+                          </td>
+                          <td>
+                            <span class="tag is-primary is-light">{{ item.quantidade|floatformat:3 }}</span>
+                          </td>
+                        </tr>
+                      {% endwith %}
+                    {% empty %}
+                      <tr>
+                        <td colspan="10">Nenhum item importado.</td>
+                      </tr>
+                    {% endfor %}
+                  </tbody>
+                </table>
+              </div>
+              <div class="field is-grouped">
+                <div class="control">
+                  <button class="button is-primary" type="submit">Salvar contagens</button>
+                </div>
+                <div class="control">
+                  <a class="button is-light" href="{% url 'estoque:inventory_collector' %}">Atualizar</a>
+                </div>
+              </div>
+            </form>
+          {% else %}
+            <p>Nenhum item importado até o momento. Selecione um arquivo no formulário acima.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </section>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const container = document.querySelector('.import-form');
+      if (!container) return;
+      const fileInput = container.querySelector('input[type="file"]');
+      const fileNameEl = container.querySelector('.js-file-name');
+      if (fileInput && fileNameEl) {
+        fileInput.addEventListener('change', function () {
+          const name = this.files && this.files.length ? this.files[0].name : 'Nenhum arquivo selecionado';
+          fileNameEl.textContent = name;
+        });
+      }
+    });
+  </script>
+{% endblock %}

@@ -2,9 +2,47 @@
 
 {% block title %}Detalhe do Cliente{% endblock %}
 
+{% block hero_title %}Cliente{% endblock %}
+{% block hero_subtitle %}Dados cadastrais e ações rápidas{% endblock %}
+
 {% block content %}
-  <h1 class="title">{{ client.first_name }} {{ client.last_name }}</h1>
-  <p><strong>Email:</strong> {{ client.email }}</p>
-  <p><strong>Telefone:</strong> {{ client.phone }}</p>
-  <p><a class="button" href="{% url 'clients:update' client.pk %}">Editar</a></p>
+  <div class="columns">
+    <div class="column is-9">
+      <div class="box">
+        <div class="level">
+          <div class="level-left">
+            <h1 class="title" style="margin:0">{{ client.first_name }} {{ client.last_name }}</h1>
+          </div>
+          <div class="level-right">
+            <div class="buttons">
+              <span class="tag is-light">Somente leitura</span>
+            </div>
+          </div>
+        </div>
+        <table class="table is-fullwidth">
+          <tbody>
+            <tr><th>Tipo de pessoa</th><td>{{ client.get_person_type_display }}</td></tr>
+            <tr><th>Documento</th><td>{{ client.formatted_document|default:'—' }}</td></tr>
+            <tr><th>Código</th><td>{{ client.code }}</td></tr>
+            <tr><th>Email</th><td>{{ client.email }}</td></tr>
+            <tr><th>Telefone</th><td>{{ client.phone|default:'—' }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="column is-3">
+      <div class="box">
+        <h3 class="title is-6">Ações</h3>
+        <div class="buttons is-flex is-flex-direction-column">
+          <span class="tag is-light">Somente leitura</span>
+          <a class="button is-light" href="{% url 'clients:index' %}">Voltar à lista</a>
+        </div>
+        <hr>
+        <p class="small text-muted">Criado em</p>
+        <p>{{ client.created_at }}</p>
+        <p class="small text-muted" style="margin-top:0.75rem;">Atualizado em</p>
+        <p>{{ client.updated_at }}</p>
+      </div>
+    </div>
+  </div>
 {% endblock %}

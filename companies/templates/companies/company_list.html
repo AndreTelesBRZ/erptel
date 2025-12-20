@@ -1,0 +1,114 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Empresas{% endblock %}
+{% block hero_title %}Empresas{% endblock %}
+{% block hero_subtitle %}Cadastre e edite dados das empresas{% endblock %}
+
+{% block content %}
+  <div class="level">
+    <div class="level-left">
+      <h1 class="title" style="margin:0">Empresas</h1>
+      <span class="tag is-light" style="margin-left:0.6rem">{{ page_obj.paginator.count }} registros</span>
+    </div>
+    <div class="level-right">
+      <a class="button is-primary" href="{% url 'companies:create' %}">Nova empresa</a>
+    </div>
+  </div>
+
+  <form method="get" class="box" style="padding:0.9rem 1rem;">
+    <div class="columns is-vcentered is-mobile">
+      <div class="column is-three-quarters">
+        <div class="field has-addons is-fullwidth">
+          <div class="control is-expanded has-icons-left">
+            <input class="input" type="search" name="q" placeholder="Buscar código, razão social, fantasia, CNPJ ou e-mail" value="{{ filters.q }}">
+            <span class="icon is-left">🔎</span>
+          </div>
+          <div class="control"><button class="button is-primary" type="submit">Filtrar</button></div>
+          <div class="control"><a class="button" href="{% url 'companies:list' %}">Limpar</a></div>
+        </div>
+      </div>
+      <div class="column">
+        <div class="field">
+          <div class="select is-fullwidth">
+            <select name="status" onchange="this.form.submit()">
+              <option value="">Todas</option>
+              <option value="active" {% if filters.status == 'active' %}selected{% endif %}>Ativas</option>
+              <option value="inactive" {% if filters.status == 'inactive' %}selected{% endif %}>Inativas</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <table class="table is-fullwidth is-hoverable">
+    <thead>
+      <tr>
+        <th>Razão social</th>
+        <th>Código</th>
+        <th>Nome fantasia</th>
+        <th>CNPJ</th>
+        <th>E-mail</th>
+        <th>Telefone</th>
+        <th>Status</th>
+        <th style="width:140px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for company in companies %}
+        <tr>
+          <td>{{ company.name }}</td>
+          <td>{{ company.code }}</td>
+          <td>{{ company.trade_name|default:'—' }}</td>
+          <td>{{ company.tax_id }}</td>
+          <td>{{ company.email|default:'—' }}</td>
+          <td>{{ company.phone|default:'—' }}</td>
+          <td>
+            {% if company.is_active %}
+              <span class="tag is-success is-light">Ativa</span>
+            {% else %}
+              <span class="tag is-light">Inativa</span>
+            {% endif %}
+          </td>
+          <td class="has-text-right">
+            <div class="buttons are-small is-right">
+              {% if sefaz_nfe_ready %}
+                <a class="button is-link is-light" href="{% url 'companies:nfe' company.pk %}" title="Consultar NF-e emitidas para esta empresa">NF-e</a>
+              {% else %}
+                <span class="button is-link is-light" title="Configure o certificado digital A1 para habilitar" disabled>NF-e</span>
+              {% endif %}
+              <a class="button" href="{% url 'companies:edit' company.pk %}">Editar</a>
+              <a class="button is-danger is-light" href="{% url 'companies:delete' company.pk %}">Excluir</a>
+            </div>
+          </td>
+        </tr>
+      {% empty %}
+        <tr><td colspan="8">Nenhuma empresa encontrada.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% if is_paginated %}
+    <nav class="pagination is-centered" role="navigation" aria-label="pagination">
+      {% if page_obj.has_previous %}
+        <a class="pagination-previous" href="?page={{ page_obj.previous_page_number }}&q={{ filters.q }}&status={{ filters.status }}">Anterior</a>
+      {% else %}
+        <a class="pagination-previous" disabled>Anterior</a>
+      {% endif %}
+      {% if page_obj.has_next %}
+        <a class="pagination-next" href="?page={{ page_obj.next_page_number }}&q={{ filters.q }}&status={{ filters.status }}">Próxima</a>
+      {% else %}
+        <a class="pagination-next" disabled>Próxima</a>
+      {% endif %}
+      <ul class="pagination-list">
+        {% for p in page_obj.paginator.page_range %}
+          {% if p == page_obj.number %}
+            <li><a class="pagination-link is-current">{{ p }}</a></li>
+          {% else %}
+            <li><a class="pagination-link" href="?page={{ p }}&q={{ filters.q }}&status={{ filters.status }}">{{ p }}</a></li>
+          {% endif %}
+        {% endfor %}
+      </ul>
+    </nav>
+  {% endif %}
+{% endblock %}

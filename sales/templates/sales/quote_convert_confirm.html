@@ -1,0 +1,18 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Converter orçamento{% endblock %}
+{% block hero_title %}Converter orçamento{% endblock %}
+{% block hero_subtitle %}Gerar pedido a partir do orçamento{% endblock %}
+
+{% block content %}
+  <div class="box">
+    <p>Você está prestes a gerar um pedido a partir do orçamento <strong>{{ quote.number }}</strong> do cliente <strong>{{ quote.client }}</strong>.</p>
+    <p>Total do orçamento: <strong>R$ {{ quote.total_amount|floatformat:2 }}</strong></p>
+    <p>Deseja continuar?</p>
+    <form method="post" class="buttons">
+      {% csrf_token %}
+      <button type="submit" class="button is-primary">Sim, gerar pedido</button>
+      <a class="button is-light" href="{% url 'sales:quote_detail' quote.pk %}">Cancelar</a>
+    </form>
+  </div>
+{% endblock %}

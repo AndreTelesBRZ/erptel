@@ -18,14 +18,32 @@ from django.contrib import admin
 from django.urls import path, include
 from django.contrib.auth import views as auth_views
 from core import views as core_views
+from rest_framework.authtoken import views as drf_authtoken_views
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('', auth_views.LoginView.as_view(template_name='registration/login.html'), name='login'),
-    path('logout/', auth_views.LogoutView.as_view(), name='logout'),
+    path('logout/', core_views.logout_view, name='logout'),
+    path('accounts/logout/', core_views.logout_view, name='accounts_logout'),
     path('dashboard/', core_views.dashboard, name='dashboard'),
     path('products/', include('products.urls')),
     path('clients/', include('clients.urls')),
+    path('sales/', include('sales.urls')),
+    path('purchases/', include('purchases.urls')),
+    path('finance/', include('finance.urls')),
+    path('custos/', include('custos.urls')),
+    path('companies/', include('companies.urls')),
+    path('relatorios/', include('relatorios.urls')),
+    path('estoque/', include('estoque.urls')),
     path('accounts/', include('django.contrib.auth.urls')),
     path('core/', include('core.urls')),
+    path('api/', include('api.urls')),
+    path('api-token-auth/', drf_authtoken_views.obtain_auth_token, name='api-token-auth'),
+    path('api-auth/', include('rest_framework.urls')),
+
 ]
+
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

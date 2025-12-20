@@ -1,0 +1,176 @@
+{% extends 'core/base.html' %}
+{% load ui_extras %}
+
+{% block title %}Clientes Sync{% endblock %}
+
+{% block hero_title %}Clientes sincronizados{% endblock %}
+{% block hero_subtitle %}Visualize os registros importados da integração externa (somente leitura).{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <header>
+      <div>
+        <h2 style="margin:0">Staging de clientes</h2>
+        <p class="small text-muted">Consulta dos dados recebidos via integração (tabela erp_clientes_vendedores).</p>
+      </div>
+      <div class="buttons">
+        <span class="tag">{{ total }} itens</span>
+        {% if last_sync_at %}
+          <span class="tag is-light" title="{{ last_sync_at|date:'d/m/Y H:i:s' }}">Última sync: {{ last_sync_at|timesince }} atrás</span>
+        {% else %}
+          <span class="tag is-warning is-light">Última sync: sem registro</span>
+        {% endif %}
+      </div>
+    </header>
+  </div>
+
+  <form method="get" class="surface filters-panel" data-aos="fade-up" data-aos-delay="60">
+    <div class="filters-grid">
+      <div>
+        <label class="small text-muted" for="search-sync">Buscar por código, nome, fantasia, documento, email ou vendedor</label>
+        <div class="field has-addons is-fullwidth">
+          <div class="control is-expanded has-icons-left">
+            <input id="search-sync" class="input" type="search" name="q" placeholder="Pesquisar…" value="{{ filters.q }}">
+            <span class="icon is-left" data-lucide="search"></span>
+          </div>
+          <div class="control"><button class="button is-primary" type="submit">Pesquisar</button></div>
+          <div class="control"><a class="button is-secondary" href="{% url 'clients:sync_list' %}">Limpar</a></div>
+        </div>
+      </div>
+      <div class="filter-controls">
+        <div class="field-group">
+          <div class="control">
+            <div class="select is-small">
+              <select name="per_page" onchange="window.location=this.options[this.selectedIndex].dataset.href">
+                {% for n in per_page_options %}
+                  <option value="{{ n }}" data-href="{% per_page_url n %}" {% if per_page == n %}selected{% endif %}>{{ n }}/página</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ dir }}">
+      </div>
+    </div>
+  </form>
+
+  {% if filters.q %}
+    <div class="tags are-medium" style="margin-top:0.5rem">
+      <a class="tag is-info is-light" href="{% qs_url q=None page='1' %}">Busca: "{{ filters.q }}" ×</a>
+      <a class="tag is-light" href="{% url 'clients:sync_list' %}">Limpar</a>
+    </div>
+  {% endif %}
+
+  <div class="box data-card" data-aos="fade-up" data-aos-delay="90">
+    <table class="table is-fullwidth is-hoverable is-compact">
+      <thead>
+        <tr>
+          <th style="width:130px">
+            {% with col='codigo' %}<a href="{% sort_url col sort dir %}">Código {% sort_caret col sort dir %}</a>{% endwith %}
+          </th>
+          <th>
+            {% with col='nome' %}<a href="{% sort_url col sort dir %}">Razão social {% sort_caret col sort dir %}</a>{% endwith %}
+          </th>
+          <th>
+            {% with col='fantasia' %}<a href="{% sort_url col sort dir %}">Nome fantasia {% sort_caret col sort dir %}</a>{% endwith %}
+          </th>
+          <th style="width:160px">
+            {% with col='documento' %}<a href="{% sort_url col sort dir %}">CPF/CNPJ {% sort_caret col sort dir %}</a>{% endwith %}
+          </th>
+          <th>
+            {% with col='email' %}<a href="{% sort_url col sort dir %}">Email {% sort_caret col sort dir %}</a>{% endwith %}
+          </th>
+          <th style="width:140px">
+            <span>Telefone</span>
+          </th>
+          <th style="width:160px">
+            {% with col='vendedor' %}<a href="{% sort_url col sort dir %}">Vendedor {% sort_caret col sort dir %}</a>{% endwith %}
+          </th>
+          <th style="width:140px">
+            {% with col='ultima_venda' %}<a href="{% sort_url col sort dir %}">Última venda {% sort_caret col sort dir %}</a>{% endwith %}
+          </th>
+          <th style="width:140px">
+            {% with col='valor_venda' %}<a href="{% sort_url col sort dir %}">Valor última venda {% sort_caret col sort dir %}</a>{% endwith %}
+          </th>
+          <th style="width:160px">
+            {% with col='updated' %}<a href="{% sort_url col sort dir %}">Atualizado {% sort_caret col sort dir %}</a>{% endwith %}
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if items %}
+          {% for item in items %}
+            <tr>
+              <td><code>{{ item.cliente_codigo }}</code></td>
+              <td><strong>{{ item.cliente_razao_social|default:"—" }}</strong></td>
+              <td>{{ item.cliente_nome_fantasia|default:"—" }}</td>
+              <td>{{ item.cliente_cnpj_cpf|default:"—" }}</td>
+              <td>{{ item.cliente_email|default:"—" }}</td>
+              <td>
+                {% if item.cliente_telefone1 %}
+                  {{ item.cliente_telefone1 }}
+                  {% if item.cliente_telefone2 %}<br><span class="small text-muted">{{ item.cliente_telefone2 }}</span>{% endif %}
+                {% elif item.cliente_telefone2 %}
+                  {{ item.cliente_telefone2 }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ item.vendedor_nome|default:"—" }}</td>
+              <td>
+                {% if item.ultima_venda_data %}
+                  {{ item.ultima_venda_data|date:"d/m/Y" }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if item.ultima_venda_valor %}
+                  R$ {{ item.ultima_venda_valor }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>
+                {% if item.updated_at %}
+                  {{ item.updated_at|date:"d/m/Y H:i" }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="9" class="has-text-centered text-muted">Nenhum registro encontrado.</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    {% if is_paginated %}
+      <nav class="pagination is-centered" role="navigation" aria-label="Paginação">
+        {% if page_obj.has_previous %}
+          <a class="pagination-previous" href="{% page_url page_obj.previous_page_number %}">Anterior</a>
+        {% else %}
+          <a class="pagination-previous" disabled>Anterior</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <a class="pagination-next" href="{% page_url page_obj.next_page_number %}">Próxima</a>
+        {% else %}
+          <a class="pagination-next" disabled>Próxima</a>
+        {% endif %}
+        <ul class="pagination-list">
+          {% for p in page_obj.paginator.page_range %}
+            {% if p == page_obj.number %}
+              <li><a class="pagination-link is-current">{{ p }}</a></li>
+            {% else %}
+              <li><a class="pagination-link" href="{% page_url p %}">{{ p }}</a></li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      </nav>
+    {% endif %}
+  </div>
+{% endblock %}

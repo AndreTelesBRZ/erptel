@@ -1,0 +1,137 @@
+{% extends 'core/base.html' %}
+
+{% block title %}{% if is_edit %}Editar pedido{% else %}Novo pedido{% endif %}{% endblock %}
+{% block hero_title %}Pedidos{% endblock %}
+{% block hero_subtitle %}{% if is_edit %}Atualize o pedido{% else %}Cadastre um novo pedido de venda{% endif %}{% endblock %}
+
+{% block content %}
+  <form method="post" novalidate>
+    {% csrf_token %}
+    <div class="columns">
+      <div class="column is-4">
+        <div class="box">
+          <h2 class="title is-6">Dados gerais</h2>
+          <div class="field">
+            <label class="label">Cliente</label>
+            <div class="field has-addons lookup-field" data-lookup-scope="clients">
+              <div class="control is-expanded">
+                {{ form.client }}
+              </div>
+              <div class="control">
+                <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="clients" aria-label="Buscar cliente (F2)">
+                  <span class="icon" data-lucide="search"></span>
+                </button>
+              </div>
+            </div>
+            <p class="small text-muted">Use F2 ou clique na lupa para localizar clientes.</p>
+            {% if form.client.errors %}
+              <p class="help is-danger">{{ form.client.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            <label class="label">Orçamento de origem</label>
+            <div class="field has-addons lookup-field" data-lookup-scope="quotes">
+              <div class="control is-expanded">
+                {{ form.quote }}
+              </div>
+              <div class="control">
+                <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="quotes" aria-label="Buscar orçamento (F2)">
+                  <span class="icon" data-lucide="search"></span>
+                </button>
+              </div>
+            </div>
+            <p class="small text-muted">Filtre por número ou cliente usando F2.</p>
+          </div>
+          <div class="field">
+            <label class="label">Data de emissão</label>
+            <div class="control">
+              {{ form.issue_date }}
+            </div>
+          </div>
+          <div class="field">
+            <label class="label">Status</label>
+            <div class="control">
+              {{ form.status }}
+            </div>
+          </div>
+          <div class="field">
+            <label class="label">Condições de pagamento</label>
+            <div class="control">
+              {{ form.payment_terms }}
+            </div>
+          </div>
+          <div class="field">
+            <label class="label">Observações</label>
+            <div class="control">
+              {{ form.notes }}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="column">
+        <div class="box">
+          <h2 class="title is-6">Itens</h2>
+          {{ formset.management_form }}
+          <table class="table is-fullwidth is-striped">
+            <thead>
+              <tr>
+                <th>Produto</th>
+                <th>Descrição</th>
+                <th style="width:120px">Qtd</th>
+                <th style="width:160px">Preço unitário</th>
+                <th style="width:120px">Desconto</th>
+                <th style="width:80px">Ordem</th>
+                {% if sales_permissions.delete %}
+                  <th style="width:60px"></th>
+                {% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for item_form in formset.forms %}
+                <tr>
+                  <td>
+                    {{ item_form.id }}
+                    <div class="field has-addons lookup-field" data-lookup-scope="products">
+                      <div class="control is-expanded">
+                        {{ item_form.product }}
+                      </div>
+                      <div class="control">
+                        <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="products" aria-label="Buscar produto (F2)">
+                          <span class="icon" data-lucide="search"></span>
+                        </button>
+                      </div>
+                    </div>
+                  </td>
+                  <td>{{ item_form.description }}</td>
+                  <td>{{ item_form.quantity }}</td>
+                  <td>{{ item_form.unit_price }}</td>
+                  <td>{{ item_form.discount }}</td>
+                  <td>{{ item_form.sort_order }}</td>
+                  {% if sales_permissions.delete %}
+                    <td class="has-text-centered">
+                      <label class="checkbox">
+                        {{ item_form.DELETE }} <span class="small text-muted">Excluir</span>
+                      </label>
+                    </td>
+                  {% endif %}
+                </tr>
+                {% if item_form.non_field_errors %}
+                  <tr><td colspan="7"><p class="help is-danger">{{ item_form.non_field_errors|join:', ' }}</p></td></tr>
+                {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
+          <p class="small text-muted">Use os campos em branco para incluir novos itens.</p>
+        </div>
+      </div>
+    </div>
+    <div class="field is-grouped">
+      <div class="control">
+        <button class="button is-primary" type="submit">Salvar</button>
+      </div>
+      <div class="control">
+        <a class="button is-light" href="{% url 'sales:order_list' %}">Cancelar</a>
+      </div>
+    </div>
+  </form>
+{% endblock %}

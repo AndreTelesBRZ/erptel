@@ -1,0 +1,141 @@
+{% extends 'core/base.html' %}
+{% load ui_extras %}
+
+{% block title %}Selecionar itens - {{ batch.name }}{% endblock %}
+
+{% block hero_title %}Selecionar itens{% endblock %}
+{% block hero_subtitle %}Filtre e escolha os itens que deseja incluir no lote {{ batch.name }}.{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <header>
+      <div>
+        <h2 style="margin:0">{{ batch.name }}</h2>
+        <p class="small text-muted">Itens existentes no cadastro de fornecedores.</p>
+      </div>
+      <div class="buttons">
+        <a class="button is-secondary" href="{% url 'custos:batch_detail' batch.pk %}">Voltar ao lote</a>
+      </div>
+    </header>
+  </div>
+
+  <form method="get" class="surface filters-panel" data-aos="fade-up" data-aos-delay="60">
+    <div class="filters-grid">
+      <div>
+        <label class="small text-muted" for="search-items">Pesquisar</label>
+        <div class="field has-addons is-fullwidth">
+          <div class="control is-expanded has-icons-left">
+            <input id="search-items" class="input" type="search" name="q" placeholder="Código, descrição ou produto" value="{{ q }}">
+            <span class="icon is-left" data-lucide="search"></span>
+          </div>
+          <div class="control"><button class="button is-primary" type="submit">Buscar</button></div>
+          <div class="control"><a class="button is-secondary" href="{% url 'custos:batch_select_items' batch.pk %}">Limpar</a></div>
+        </div>
+      </div>
+      <div class="filter-controls">
+        <div class="field-group">
+          <div class="control">
+            <div class="select is-small">
+              <select name="supplier" onchange="this.form.submit()">
+                <option value="">Todos os fornecedores</option>
+                {% for supplier in suppliers %}
+                  <option value="{{ supplier.id }}" {% if supplier_id|default:''|stringformat:'s' == supplier.id|stringformat:'s' %}selected{% endif %}>{{ supplier.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="control">
+            <div class="select is-small">
+              <select name="per_page" onchange="window.location=this.options[this.selectedIndex].dataset.href">
+                {% for n in per_page_options %}
+                  <option value="{{ n }}" data-href="{% per_page_url n %}" {% if per_page == n %}selected{% endif %}>{{ n }}/página</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="box data-card" data-aos="fade-up" data-aos-delay="90">
+      <header style="margin-bottom:1rem">
+        <div>
+          <h2 style="margin:0">Resultados ({{ total }})</h2>
+        </div>
+        <div class="buttons">
+          <button class="button is-primary" type="submit">Adicionar selecionados</button>
+        </div>
+      </header>
+      <div class="table-container">
+        <table class="table is-fullwidth is-hoverable is-compact">
+          <thead>
+            <tr>
+              <th style="width:40px"></th>
+              <th style="width:80px">Código</th>
+              <th>Descrição</th>
+              <th style="width:160px">Fornecedor</th>
+              <th style="width:120px; text-align:right">Preço compra</th>
+              <th style="width:120px; text-align:right">IPI (%)</th>
+              <th style="width:120px; text-align:right">Frete (%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if items %}
+              {% for item in items %}
+                <tr>
+                  <td>
+                    <label class="checkbox">
+                      <input type="checkbox" name="item_ids" value="{{ item.id }}">
+                    </label>
+                  </td>
+                  <td><code>{{ item.code }}</code></td>
+                  <td>
+                    <strong>{{ item.description }}</strong>
+                    {% if item.product %}
+                      <div class="small text-muted">Produto: {{ item.product.name }}</div>
+                    {% endif %}
+                  </td>
+                  <td>{{ item.supplier.name|default:'—' }}</td>
+                  <td style="text-align:right">{{ item.unit_price|default_if_none:'0.00'|floatformat:2 }}</td>
+                  <td style="text-align:right">{{ item.ipi_percent|default_if_none:'0.00'|floatformat:2 }}</td>
+                  <td style="text-align:right">{{ item.freight_percent|default_if_none:'0.00'|floatformat:2 }}</td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="7" class="has-text-centered text-muted">Nenhum item encontrado para os filtros informados.</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+
+      {% if is_paginated %}
+        <nav class="pagination is-centered" role="navigation" aria-label="Paginação">
+          {% if page_obj.has_previous %}
+            <a class="pagination-previous" href="{% page_url page_obj.previous_page_number %}">Anterior</a>
+          {% else %}
+            <a class="pagination-previous" disabled>Anterior</a>
+          {% endif %}
+          {% if page_obj.has_next %}
+            <a class="pagination-next" href="{% page_url page_obj.next_page_number %}">Próxima</a>
+          {% else %}
+            <a class="pagination-next" disabled>Próxima</a>
+          {% endif %}
+          <ul class="pagination-list">
+            {% for p in page_obj.paginator.page_range %}
+              {% if p == page_obj.number %}
+                <li><a class="pagination-link is-current">{{ p }}</a></li>
+              {% else %}
+                <li><a class="pagination-link" href="{% page_url p %}">{{ p }}</a></li>
+              {% endif %}
+            {% endfor %}
+          </ul>
+        </nav>
+      {% endif %}
+    </div>
+  </form>
+{% endblock %}

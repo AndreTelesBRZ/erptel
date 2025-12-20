@@ -1,12 +1,38 @@
 {% extends 'core/base.html' %}
 
 {% block title %}Relatório de Produtos{% endblock %}
+{% block hero_title %}Relatório de Produtos{% endblock %}
+{% block hero_subtitle %}Indicadores e exportações{% endblock %}
 
 {% block content %}
-  <h1 class="title">Relatório de Produtos</h1>
-  <p>Total de produtos: {{ total }}</p>
-  <p>Preço médio: {{ avg_price }}</p>
-  {% if user.is_authenticated %}
-    <p><a class="button" href="{% url 'products:report_csv' %}">Download CSV</a></p>
-  {% endif %}
+  <div class="columns">
+    <div class="column is-4">
+      <div class="card">
+        <div class="card-content">
+          <p class="small text-muted">Total de produtos</p>
+          <p class="title is-3" style="margin:0">{{ total }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="column is-4">
+      <div class="card">
+        <div class="card-content">
+          <p class="small text-muted">Preço médio</p>
+          <p class="title is-3" style="margin:0">{{ avg_price|floatformat:2 }}</p>
+        </div>
+      </div>
+    </div>
+    <div class="column is-4">
+      <div class="card">
+        <div class="card-content">
+          <p class="small text-muted">Exportação</p>
+          {% if user.is_authenticated %}
+            <a class="button is-primary" href="{% url 'products:export_csv' %}">Exportar Produtos (CSV)</a>
+          {% else %}
+            <span class="tag is-light">Requer login</span>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
 {% endblock %}

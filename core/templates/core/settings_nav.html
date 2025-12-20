@@ -1,0 +1,10 @@
+<nav class="settings-nav" aria-label="Menu configurações">
+  <a href="{% url 'core:settings_profile' %}" class="{% if active == 'profile' %}is-active{% endif %}">Perfil</a>
+  <a href="{% url 'core:settings_email' %}" class="{% if active == 'email' %}is-active{% endif %}">E-mails</a>
+  <a href="{% url 'core:settings_sales' %}" class="{% if active == 'sales' %}is-active{% endif %}">Vendas</a>
+  <a href="{% url 'core:settings_sefaz' %}" class="{% if active == 'sefaz' %}is-active{% endif %}">Integração SEFAZ</a>
+  <a href="{% url 'core:settings_access' %}" class="{% if active == 'access_list' or active == 'access_edit' or active == 'access_create' %}is-active{% endif %}">Acessos de Usuários</a>
+  {% if user.is_superuser %}
+    <a href="{% url 'core:settings_api_tokens' %}" class="{% if active == 'api_tokens' %}is-active{% endif %}">Tokens da API</a>
+  {% endif %}
+</nav>

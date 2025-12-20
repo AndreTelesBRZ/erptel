@@ -1,0 +1,149 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Configurações • Tokens da API{% endblock %}
+{% block hero_title %}Configurações{% endblock %}
+{% block hero_subtitle %}Gerencie usuários e tokens para integrações externas{% endblock %}
+
+{% block content %}
+  {% include 'core/settings_nav.html' with active='api_tokens' %}
+
+  <div class="box data-card" data-aos="fade-up">
+    <header style="display:flex; justify-content:space-between; align-items:center; gap:1rem;">
+      <div>
+        <h2 style="margin:0">{% if editing %}Editar usuário da API{% else %}Tokens da API{% endif %}</h2>
+        <p class="small text-muted">
+          {% if editing %}
+            Atualize o usuário e gere um novo token.
+          {% else %}
+            Crie ou atualize usuários da API e gere um token JWT.
+          {% endif %}
+        </p>
+      </div>
+      {% if editing %}
+        <div>
+          <a class="button is-secondary" href="{% url 'core:settings_api_tokens' %}">Voltar</a>
+        </div>
+      {% endif %}
+    </header>
+
+    <form method="post" style="margin-top:1rem;">
+      {% csrf_token %}
+      <div class="columns is-multiline">
+        <div class="column is-6">
+          <div class="field">
+            <label class="label">{{ form.username.label }}</label>
+            <div class="control">
+              {{ form.username }}
+            </div>
+            {% if form.username.errors %}
+              <p class="help is-danger">{{ form.username.errors|join:", " }}</p>
+            {% endif %}
+          </div>
+        </div>
+        <div class="column is-6">
+          <div class="field">
+            <label class="label">{{ form.password.label }}</label>
+            <div class="control">
+              {{ form.password }}
+            </div>
+            {% if editing %}
+              <p class="help">Deixe em branco para manter a senha atual.</p>
+            {% endif %}
+            {% if form.password.errors %}
+              <p class="help is-danger">{{ form.password.errors|join:", " }}</p>
+            {% endif %}
+          </div>
+        </div>
+        <div class="column is-6">
+          <div class="field">
+            <label class="label">{{ form.vendor_code.label }}</label>
+            <div class="control">
+              {{ form.vendor_code }}
+            </div>
+            {% if form.vendor_code.errors %}
+              <p class="help is-danger">{{ form.vendor_code.errors|join:", " }}</p>
+            {% endif %}
+          </div>
+        </div>
+        <div class="column is-6">
+          <div class="field">
+            <label class="checkbox">
+              {{ form.is_active }} {{ form.is_active.label }}
+            </label>
+            {% if form.is_active.errors %}
+              <p class="help is-danger">{{ form.is_active.errors|join:", " }}</p>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+
+      {% if form.non_field_errors %}
+        <p class="help is-danger">{{ form.non_field_errors|join:", " }}</p>
+      {% endif %}
+
+      <div class="field">
+        <button class="button is-primary" type="submit">
+          <span class="icon" data-lucide="key"></span>
+          <span>{% if editing %}Salvar e gerar token{% else %}Gerar token{% endif %}</span>
+        </button>
+      </div>
+    </form>
+  </div>
+
+  {% if token %}
+    <div class="box data-card" data-aos="fade-up">
+      <h3 style="margin-top:0">Token gerado</h3>
+      {% if user_data %}
+        <p class="small text-muted">
+          Usuário: <strong>{{ user_data.username }}</strong>
+          {% if user_data.vendor_code %} • Vendedor: {{ user_data.vendor_code }}{% endif %}
+        </p>
+      {% endif %}
+      {% if expires_at %}
+        <p class="small text-muted">Expira em: {{ expires_at|date:"d/m/Y H:i" }}</p>
+      {% endif %}
+      <div class="field">
+        <div class="control">
+          <textarea class="textarea" rows="4" readonly>{{ token }}</textarea>
+        </div>
+        <p class="help">Use este valor como <code>Bearer</code> no app.</p>
+      </div>
+    </div>
+  {% endif %}
+
+  <div class="box data-card" data-aos="fade-up">
+    <h3 style="margin-top:0">Usuários da API</h3>
+    <table class="table is-fullwidth is-hoverable">
+      <thead>
+        <tr>
+          <th>Usuário</th>
+          <th>Vendedor</th>
+          <th>Status</th>
+          <th>Atualizado</th>
+          <th style="width:120px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for api_user in users %}
+          <tr>
+            <td><strong>{{ api_user.username }}</strong></td>
+            <td>{{ api_user.vendor_code|default:"-" }}</td>
+            <td>
+              {% if api_user.is_active %}
+                <span class="tag is-success is-light">Ativo</span>
+              {% else %}
+                <span class="tag is-light">Inativo</span>
+              {% endif %}
+            </td>
+            <td>{{ api_user.updated_at|date:"d/m/Y H:i" }}</td>
+            <td class="has-text-right">
+              <a class="button is-primary is-light" href="{% url 'core:settings_api_tokens_edit' api_user.id %}">Editar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5">Nenhum usuário encontrado.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

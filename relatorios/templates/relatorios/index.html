@@ -1,0 +1,144 @@
+{% extends 'core/base.html' %}
+{% block title %}Relatórios{% endblock %}
+
+{% block hero_title %}Relatórios{% endblock %}
+{% block hero_subtitle %}
+  Indicadores consolidados de vendas, compras e produtos{% if active_company %} · Empresa: {{ active_company.trade_name|default:active_company.name }}{% endif %}
+{% endblock %}
+
+{% block content %}
+  <section class="data-section">
+    <div class="stat-grid">
+      <div class="card metric-card" data-aos="fade-up">
+        <span class="metric-label">Pedidos de venda</span>
+        <div class="metric-value">{{ sales_report.summary.total_orders }}</div>
+        <p class="small text-muted">Valor total: R$ {{ sales_report.summary.total_order_value|floatformat:2 }}</p>
+      </div>
+      <div class="card metric-card" data-aos="fade-up" data-aos-delay="70">
+        <span class="metric-label">Orçamentos</span>
+        <div class="metric-value">{{ sales_report.summary.total_quotes }}</div>
+        <p class="small text-muted">Valor total: R$ {{ sales_report.summary.total_quote_value|floatformat:2 }}</p>
+      </div>
+      <div class="card metric-card" data-aos="fade-up" data-aos-delay="140">
+        <span class="metric-label">Compras</span>
+        <div class="metric-value">{{ purchase_report.summary.total_orders }}</div>
+        <p class="small text-muted">Valor adquirido: R$ {{ purchase_report.summary.total_amount|floatformat:2 }}</p>
+      </div>
+      <div class="card metric-card" data-aos="fade-up" data-aos-delay="210">
+        <span class="metric-label">Produtos</span>
+        <div class="metric-value">{{ product_report.summary.total_products }}</div>
+        <p class="small text-muted">Estoque: R$ {{ product_report.summary.inventory_value|floatformat:2 }}</p>
+      </div>
+    </div>
+
+    <div class="grid">
+      <div class="box data-card" data-aos="fade-up">
+        <header>
+          <h2>Resumo de vendas (últimos 30 dias)</h2>
+        </header>
+        <div class="columns is-multiline">
+          <div class="column is-half">
+            <div class="stat-block">
+              <span class="label">Pedidos emitidos</span>
+              <strong>{{ sales_report.last_30_days.orders }}</strong>
+            </div>
+            <div class="stat-block">
+              <span class="label">Valor faturado</span>
+              <strong>R$ {{ sales_report.last_30_days.order_value|floatformat:2 }}</strong>
+            </div>
+          </div>
+          <div class="column is-half">
+            <div class="stat-block">
+              <span class="label">Orçamentos criados</span>
+              <strong>{{ sales_report.last_30_days.quotes }}</strong>
+            </div>
+            <div class="stat-block">
+              <span class="label">Valor orçado</span>
+              <strong>R$ {{ sales_report.last_30_days.quote_value|floatformat:2 }}</strong>
+            </div>
+          </div>
+        </div>
+        <div class="stat-block">
+          <span class="label">Taxa de conversão</span>
+          <strong>{{ sales_report.summary.conversion_rate|floatformat:2 }}%</strong>
+        </div>
+        <hr>
+        <div class="columns">
+          <div class="column">
+            <h3 class="small text-muted">Pedidos por status</h3>
+            <ul class="status-list">
+              {% for status in sales_report.status_breakdown.orders %}
+                <li>
+                  <span class="label">{{ status.label }}</span>
+                  <span class="value">{{ status.count }}</span>
+                </li>
+              {% empty %}
+                <li>Nenhum pedido cadastrado.</li>
+              {% endfor %}
+            </ul>
+          </div>
+          <div class="column">
+            <h3 class="small text-muted">Orçamentos por status</h3>
+            <ul class="status-list">
+              {% for status in sales_report.status_breakdown.quotes %}
+                <li>
+                  <span class="label">{{ status.label }}</span>
+                  <span class="value">{{ status.count }}</span>
+                </li>
+              {% empty %}
+                <li>Nenhum orçamento cadastrado.</li>
+              {% endfor %}
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="box data-card" data-aos="fade-up" data-aos-delay="80">
+        <header>
+          <h2>Compras</h2>
+        </header>
+        <p class="small text-muted">Pedidos registrados recentemente: {{ purchase_report.last_30_days.orders }}</p>
+        <p class="small text-muted">Valor recebido (30 dias): R$ {{ purchase_report.last_30_days.amount|floatformat:2 }}</p>
+        <hr>
+        <h3 class="small text-muted">Pedidos por status</h3>
+        <ul class="status-list">
+          {% for status in purchase_report.status_breakdown %}
+            <li>
+              <span class="label">{{ status.label }}</span>
+              <span class="value">{{ status.count }}</span>
+            </li>
+          {% empty %}
+            <li>Nenhum pedido de compra cadastrado.</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+
+    <div class="box data-card" data-aos="fade-up" data-aos-delay="120">
+      <header>
+        <h2>Produtos</h2>
+      </header>
+      <div class="columns is-multiline">
+        <div class="column is-one-third">
+          <div class="stat-block">
+            <span class="label">Inventário estimado</span>
+            <strong>R$ {{ product_report.summary.inventory_value|floatformat:2 }}</strong>
+          </div>
+        </div>
+        <div class="column is-one-third">
+          <div class="stat-block">
+            <span class="label">Preço médio</span>
+            <strong>R$ {{ product_report.summary.average_price|floatformat:2 }}</strong>
+          </div>
+        </div>
+        <div class="column is-one-third">
+          <div class="stat-block">
+            <span class="label">Em falta</span>
+            <strong>{{ product_report.stock.out_of_stock }}</strong>
+          </div>
+        </div>
+      </div>
+      <p class="small text-muted">Produtos abaixo do estoque mínimo: {{ product_report.stock.low_stock }}</p>
+    </div>
+  </section>
+{% endblock %}

@@ -1,0 +1,87 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Orçamentos{% endblock %}
+{% block hero_title %}Orçamentos{% endblock %}
+{% block hero_subtitle %}Propostas e cotações de clientes{% endblock %}
+{% block hero_actions %}
+  {% if sales_permissions.manage and sales_permissions.create %}
+    <a class="button is-primary" href="{% url 'sales:quote_create' %}">Novo orçamento</a>
+  {% endif %}
+  <a class="button is-secondary" href="{% url 'sales:order_list' %}">Ver pedidos</a>
+{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <header>
+      <div>
+        <h2 style="margin:0">Pipeline de orçamentos</h2>
+        <p class="small text-muted">Acompanhe as negociações e converta em pedidos.</p>
+      </div>
+    </header>
+  </div>
+
+  <form method="get" class="surface filters-panel" data-aos="fade-up" data-aos-delay="60">
+    <div class="filters-grid">
+      <div>
+        <label class="small text-muted" for="search-quotes">Pesquisar orçamentos</label>
+        <div class="field has-addons is-fullwidth">
+          <div class="control is-expanded has-icons-left">
+            <input id="search-quotes" class="input" type="search" name="q" placeholder="Buscar por número ou cliente" value="{{ filters.q }}">
+            <span class="icon is-left" data-lucide="search"></span>
+          </div>
+          <div class="control"><button class="button is-primary" type="submit">Filtrar</button></div>
+          <div class="control"><a class="button" href="{% url 'sales:quote_list' %}">Limpar</a></div>
+        </div>
+      </div>
+      <div class="filter-controls">
+        <div class="field-group">
+          <div class="control">
+            <div class="select is-small">
+              <select name="status" onchange="this.form.submit()">
+                <option value="">Status (todos)</option>
+                {% for key,label in status_choices %}
+                  <option value="{{ key }}" {% if filters.status == key %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <div class="box data-card" data-aos="fade-up" data-aos-delay="100">
+    <table class="table is-fullwidth is-hoverable">
+      <thead>
+        <tr>
+          <th>Número</th>
+          <th>Cliente</th>
+          <th>Válido até</th>
+          <th>Status</th>
+          <th>Total</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for quote in quotes %}
+        <tr>
+          <td><strong><a href="{% url 'sales:quote_detail' quote.pk %}">{{ quote.number }}</a></strong></td>
+          <td>{{ quote.client }}</td>
+          <td>{% if quote.valid_until %}{{ quote.valid_until|date:"d/m/Y" }}{% else %}—{% endif %}</td>
+          <td><span class="tag is-light">{{ quote.get_status_display }}</span></td>
+          <td>R$ {{ quote.total_amount|floatformat:2 }}</td>
+          <td class="has-text-right">
+            <div class="buttons are-small is-right">
+            {% if sales_permissions.manage and sales_permissions.edit %}
+              <a class="button is-secondary" href="{% url 'sales:quote_edit' quote.pk %}">Editar</a>
+            {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6">Nenhum orçamento encontrado.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

@@ -1,42 +1,144 @@
 {% extends 'core/base.html' %}
+{% load ui_extras %}
 
 {% block title %}Dashboard{% endblock %}
 
-{% block content %}
-  <h1 class="title">Painel</h1>
-  <div class="columns">
-    <div class="column">
-      <div class="box">
-  <h2 class="subtitle">Total de Produtos</h2>
-        <p>{{ total_products }}</p>
-        <p><a class="button" href="{% url 'products:index' %}">View Products</a></p>
-      </div>
-    </div>
-    <div class="column">
-      <div class="box">
-  <h2 class="subtitle">Total de Clientes</h2>
-        <p>{{ total_clients }}</p>
-        <p><a class="button" href="{% url 'clients:index' %}">View Clients</a></p>
-      </div>
-    </div>
+{% block hero_title %}Dashboard{% endblock %}
+{% block hero_subtitle %}Visão geral de operações e cadastros{% endblock %}
+{% block hero_meta %}
+  <div class="quick-stats">
+    <span class="chip"><span class="icon" data-lucide="package"></span> {{ total_products }} produtos</span>
+    <span class="chip"><span class="icon" data-lucide="users"></span> {{ total_clients }} clientes</span>
+    <span class="chip"><span class="icon" data-lucide="badge-check"></span> {{ pending_adjustments_total }} reajustes pendentes</span>
+    <span class="chip"><span class="icon" data-lucide="clock-3"></span> Atualizado agora</span>
   </div>
+{% endblock %}
+{% block hero_actions %}
+  <a class="button is-primary" href="{% url 'products:index' %}">Produtos</a>
+  <a class="button is-secondary" href="{% url 'clients:index' %}">Clientes</a>
+{% endblock %}
 
-  <h2 class="subtitle">Produtos Recentes</h2>
-  <ul>
-    {% for p in recent_products %}
-      <li><a href="{% url 'products:detail' p.pk %}">{{ p.name }}</a> — {{ p.price }}</li>
-    {% empty %}
-      <li>No recent products.</li>
-    {% endfor %}
-  </ul>
+{% block content %}
+  <section class="data-section">
+    <div class="stat-grid">
+      <div class="card metric-card" data-aos="fade-up">
+        <span class="metric-label">Produtos ativos</span>
+        <div class="metric-value">
+          {{ total_products }}
+          <span class="metric-trend">
+            <span class="icon" data-lucide="arrow-up-right"></span>
+            +{{ recent_products|length }}
+          </span>
+        </div>
+        <p class="small text-muted">Novos cadastros adicionados recentemente ficam em destaque na lista.</p>
+      </div>
+      <div class="card metric-card" data-aos="fade-up" data-aos-delay="80">
+        <span class="metric-label">Clientes ativos</span>
+        <div class="metric-value">
+          {{ total_clients }}
+          <span class="metric-trend">
+            <span class="icon" data-lucide="sparkles"></span>
+            +{{ recent_clients|length }}
+          </span>
+        </div>
+        <p class="small text-muted">Analise os últimos cadastros e mantenha seu time atualizado.</p>
+      </div>
+      <div class="card metric-card" data-aos="fade-up" data-aos-delay="140">
+        <span class="metric-label">Atalhos rápidos</span>
+        <div class="hero-actions">
+          <a class="button is-primary" href="{% url 'products:index' %}">Produtos</a>
+          <a class="button is-secondary" href="{% url 'clients:index' %}">Clientes</a>
+          <a class="button is-secondary" href="{% url 'sales:quote_list' %}">Vendas</a>
+        </div>
+        <label class="checkbox small" style="margin-top:0.75rem">
+          <input type="checkbox" {% if dense %}checked{% endif %}
+                 onchange="window.location=this.checked ? '{% qs_url dense='1' %}' : '{% qs_url dense='0' %}'">
+          Visualização compacta
+        </label>
+      </div>
+      <div class="card metric-card" data-aos="fade-up" data-aos-delay="200">
+        <span class="metric-label">Lotes pendentes</span>
+        <div class="metric-value">
+          {{ pending_batches_total }}
+        </div>
+        <p class="small text-muted">Lotes de reajuste aguardando decisão.</p>
+      </div>
+    </div>
 
-  <h2 class="subtitle">Clientes Recentes</h2>
-  <ul>
-    {% for c in recent_clients %}
-      <li><a href="{% url 'clients:detail' c.pk %}">{{ c.first_name }} {{ c.last_name }}</a></li>
-    {% empty %}
-      <li>No recent clients.</li>
-    {% endfor %}
-  </ul>
+    <div class="box data-card" data-aos="fade-up">
+      <header>
+        <h2>Reajustes de preço pendentes</h2>
+      </header>
+      <table class="table is-fullwidth is-hoverable {% if dense %}is-compact{% endif %}">
+        <thead>
+          <tr>
+            <th>Produto</th>
+            <th>Novo preço</th>
+            <th>Lote</th>
+            <th>Criado em</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for item in pending_adjustments %}
+          <tr>
+            <td>
+              <a href="{% url 'products:detail' item.product.pk %}">{{ item.product.name }}</a><br>
+              <span class="small text-muted">Código: {{ item.product.code|default:'—' }}</span>
+            </td>
+            <td>{% if item.new_price %}{{ item.new_price|floatformat:2 }}{% else %}—{% endif %}</td>
+            <td>#{{ item.batch.pk }}</td>
+            <td>{{ item.batch.created_at|date:"d/m/Y H:i" }}</td>
+            <td class="has-text-right">
+              <a class="button is-warning is-small" href="{% url 'products:price_adjustment_detail' item.batch.pk %}">Revisar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5">Nenhum item pendente no momento.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
 
+    <div class="grid">
+      <div class="box data-card" data-aos="fade-up">
+        <header>
+          <h2>Produtos recentes</h2>
+          <a class="button is-secondary is-small" href="{% url 'products:index' %}">Ver todos</a>
+        </header>
+        <table class="table is-fullwidth is-hoverable {% if dense %}is-compact{% endif %}">
+          <thead><tr><th>Produto</th><th>Preço</th></tr></thead>
+          <tbody>
+          {% for p in recent_products %}
+            <tr>
+              <td><a href="{% url 'products:detail' p.pk %}">{{ p.name }}</a></td>
+              <td>{{ p.price|floatformat:2 }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="2">Sem produtos recentes.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="box data-card" data-aos="fade-up" data-aos-delay="100">
+        <header>
+          <h2>Clientes recentes</h2>
+          <a class="button is-secondary is-small" href="{% url 'clients:index' %}">Ver todos</a>
+        </header>
+        <table class="table is-fullwidth is-hoverable {% if dense %}is-compact{% endif %}">
+          <thead><tr><th>Cliente</th><th>Email</th></tr></thead>
+          <tbody>
+          {% for c in recent_clients %}
+            <tr>
+              <td><a href="{% url 'clients:detail' c.pk %}">{{ c.first_name }} {{ c.last_name }}</a></td>
+              <td>{{ c.email }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="2">Sem clientes recentes.</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 {% endblock %}

@@ -1,0 +1,102 @@
+{% extends 'core/base.html' %}
+{% load ui_extras %}
+
+{% block title %}Custos de compra{% endblock %}
+
+{% block hero_title %}Atualização de custos de compra{% endblock %}
+{% block hero_subtitle %}Edite o preço de compra e deixe o sistema calcular automaticamente IPI, frete, ST e custo de reposição.{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <form method="get" class="filters-grid">
+      <div>
+        <label class="small text-muted">Códigos (separados por vírgula)</label>
+        <input class="input" type="text" name="codes" placeholder="5983, 5964, 7115" value="{{ codes_raw }}">
+      </div>
+      <div>
+        <label class="small text-muted">Busca livre</label>
+        <input class="input" type="search" name="q" placeholder="Descrição ou código" value="{{ search }}">
+      </div>
+      <div class="field" style="align-self:flex-end">
+        <button class="button is-primary" type="submit">Filtrar</button>
+        <a class="button is-secondary" href="{% url 'custos:purchase_costs' %}">Limpar</a>
+      </div>
+    </form>
+  </div>
+
+  <div class="box data-card" data-aos="fade-up" data-aos-delay="60">
+    <header>
+      <div>
+        <h2 style="margin:0">Itens selecionados</h2>
+        <p class="small text-muted">Total: {{ total }} itens</p>
+      </div>
+      <div class="buttons">
+        {% if total > 0 %}
+          <button class="button is-primary" form="cost-form" type="submit">Salvar ajustes</button>
+          <label class="checkbox small" style="margin-left:0.5rem">
+            <input type="checkbox" name="update_products" value="1" form="cost-form" {% if update_products_flag %}checked{% endif %}>
+            Atualizar custo do produto
+          </label>
+        {% endif %}
+      </div>
+    </header>
+    <form id="cost-form" method="post">
+      {% csrf_token %}
+      {{ formset.management_form }}
+      <div class="table-container">
+        <table class="table is-fullwidth is-hoverable is-compact">
+          <thead>
+            <tr>
+              <th style="width:60px">Código</th>
+              <th>Descrição</th>
+              <th style="width:90px">Unid.</th>
+              <th style="width:80px; text-align:right">Qtd.</th>
+              <th style="width:120px; text-align:right">Preço compra</th>
+          <th style="width:140px; text-align:right">IPI (%)</th>
+          <th style="width:140px; text-align:right">Frete (%)</th>
+          <th style="width:120px; text-align:right">S.T</th>
+          <th style="width:140px; text-align:right">Custo reposição</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if rows %}
+              {% for row in rows %}
+                <tr>
+                  <td><code>{{ row.item.code }}</code>{{ row.form.id }}</td>
+                  <td>
+                    <strong>{{ row.item.description }}</strong>
+                    {% if row.item.product %}
+                      <div class="small text-muted">Produto: {{ row.item.product.name }}</div>
+                    {% endif %}
+                  </td>
+                  <td>{{ row.item.unit|default:"—" }}</td>
+                  <td style="text-align:right">{{ row.item.quantity|default:"—" }}</td>
+                  <td style="text-align:right">{{ row.form.unit_price }}</td>
+                  <td style="text-align:right">
+                    {{ row.form.ipi_percent }}
+                    <div class="small text-muted">R$ {{ row.components.ipi_value|floatformat:2 }}</div>
+                  </td>
+                  <td style="text-align:right">
+                    {{ row.form.freight_percent }}
+                    <div class="small text-muted">R$ {{ row.components.freight_value|floatformat:2 }}</div>
+                  </td>
+                  <td style="text-align:right">
+                    {{ row.components.st_value|floatformat:2 }}
+                    <div class="small text-muted">((Compra + IPI + Frete) × 1,35) × 24%</div>
+                  </td>
+                  <td style="text-align:right">
+                    <strong>{{ row.components.replacement_cost|floatformat:2 }}</strong>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="9" class="has-text-centered text-muted">Nenhum item selecionado.</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+    </form>
+  </div>
+{% endblock %}

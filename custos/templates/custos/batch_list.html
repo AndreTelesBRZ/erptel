@@ -1,0 +1,69 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Lotes de custos{% endblock %}
+
+{% block hero_title %}Lotes de custos{% endblock %}
+{% block hero_subtitle %}Organize seus cálculos em lotes com parâmetros específicos.{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <header>
+      <div>
+        <h2 style="margin:0">Lotes configurados</h2>
+        <p class="small text-muted">Cada lote guarda os parâmetros utilizados e os itens processados.</p>
+      </div>
+      <div class="buttons">
+        <a class="button is-primary" href="{% url 'custos:batch_create' %}">Criar lote</a>
+      </div>
+    </header>
+  </div>
+
+  <form method="get" class="surface filters-panel" data-aos="fade-up" data-aos-delay="60">
+    <div class="filters-grid">
+      <div>
+        <label class="small text-muted" for="search-batches">Pesquisar</label>
+        <input id="search-batches" class="input" type="search" name="q" placeholder="Nome ou descrição" value="{{ q }}">
+      </div>
+      <div style="align-self:flex-end">
+        <button class="button is-primary" type="submit">Buscar</button>
+        <a class="button is-secondary" href="{% url 'custos:batch_list' %}">Limpar</a>
+      </div>
+    </div>
+  </form>
+
+  <div class="box data-card" data-aos="fade-up" data-aos-delay="90">
+    <table class="table is-fullwidth is-hoverable is-compact">
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th style="width:120px; text-align:right">Itens</th>
+          <th style="width:160px">Criado em</th>
+          <th style="width:140px; text-align:right">MVA / ST (%)</th>
+          <th style="width:140px; text-align:right">IPI / Frete (%)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% if batches %}
+          {% for batch in batches %}
+            <tr>
+              <td>
+                <strong><a href="{% url 'custos:batch_detail' batch.pk %}">{{ batch.name }}</a></strong>
+                {% if batch.description %}
+                  <div class="small text-muted">{{ batch.description }}</div>
+                {% endif %}
+              </td>
+              <td style="text-align:right">{{ batch.items.count }}</td>
+              <td>{{ batch.created_at|date:"d/m/Y H:i" }}</td>
+              <td style="text-align:right">{{ batch.mva_percent|floatformat:2 }}% / {{ batch.st_percent|floatformat:2 }}%</td>
+              <td style="text-align:right">{{ batch.default_ipi_percent|floatformat:2 }}% / {{ batch.default_freight_percent|floatformat:2 }}%</td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="5" class="has-text-centered text-muted">Nenhum lote encontrado.</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

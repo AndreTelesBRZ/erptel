@@ -1,0 +1,110 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Catálogo de fornecedor · Seleção{% endblock %}
+{% block hero_title %}Adicionar ao catálogo do fornecedor{% endblock %}
+{% block hero_subtitle %}Revise os produtos selecionados e escolha o fornecedor{% endblock %}
+{% block hero_actions %}
+  <a class="button is-light" href="{% url 'products:index' %}">Voltar à listagem</a>
+{% endblock %}
+
+{% block content %}
+  <section class="data-section">
+    <div class="box data-card">
+      <header>
+        <h2>Produtos selecionados ({{ products|length }})</h2>
+        <p class="small text-muted">Os itens abaixo serão vinculados ao catálogo do fornecedor escolhido.</p>
+      </header>
+      <div class="table-container">
+        <table class="table is-fullwidth is-hoverable is-compact">
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th>Código</th>
+              <th>Referência</th>
+              <th>Grupo</th>
+              <th>Subgrupo</th>
+              <th>Preço atual</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for product in products %}
+              <tr>
+                <td><a href="{% url 'products:detail' product.pk %}" target="_blank">{{ product.name }}</a></td>
+                <td>{{ product.code|default:"—" }}</td>
+                <td>{{ product.reference|default:product.supplier_code|default:"—" }}</td>
+                <td>{{ product.product_group|default:"—" }}</td>
+                <td>{{ product.product_subgroup|default:"—" }}</td>
+                <td>{{ product.price|default:"—" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="box data-card" data-aos="fade-up" data-aos-delay="60">
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="confirm" value="1">
+        {% for pid in selected_ids %}
+          <input type="hidden" name="selected_ids" value="{{ pid }}">
+        {% endfor %}
+
+        <div class="columns">
+          <div class="column is-one-third">
+            <div class="field">
+              <label class="label" for="{{ form.supplier.id_for_label }}">Fornecedor</label>
+              <div class="field has-addons lookup-field" data-lookup-scope="suppliers">
+                <div class="control is-expanded">
+                  <div class="select is-fullwidth">
+                    {{ form.supplier }}
+                  </div>
+                </div>
+                <div class="control">
+                  <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="suppliers" aria-label="Buscar fornecedor (F2)">
+                    <span class="icon" data-lucide="search"></span>
+                  </button>
+                </div>
+              </div>
+              <p class="small text-muted">Pressione F2 ou clique na lupa para procurar fornecedores.</p>
+              {% if form.supplier.errors %}
+                <p class="help is-danger">{{ form.supplier.errors.0 }}</p>
+              {% endif %}
+            </div>
+          </div>
+          <div class="column is-one-third">
+            <div class="field">
+              <label class="label" for="{{ form.valid_from.id_for_label }}">Início de vigência</label>
+              <div class="control">
+                {{ form.valid_from }}
+              </div>
+              {% if form.valid_from.errors %}
+                <p class="help is-danger">{{ form.valid_from.errors.0 }}</p>
+              {% endif %}
+            </div>
+          </div>
+          <div class="column is-one-third">
+            <div class="field">
+              <label class="label" for="{{ form.valid_until.id_for_label }}">Fim de vigência</label>
+              <div class="control">
+                {{ form.valid_until }}
+              </div>
+              {% if form.valid_until.errors %}
+                <p class="help is-danger">{{ form.valid_until.errors.0 }}</p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="field is-grouped">
+          <div class="control">
+            <button class="button is-primary" type="submit">Vincular ao catálogo</button>
+          </div>
+          <div class="control">
+            <a class="button is-light" href="{% url 'products:index' %}">Cancelar</a>
+          </div>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

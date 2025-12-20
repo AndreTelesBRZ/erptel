@@ -1,0 +1,163 @@
+{% extends 'core/base.html' %}
+{% load ui_extras %}
+
+{% block title %}Parâmetros de custo{% endblock %}
+
+{% block hero_title %}Parâmetros de custo{% endblock %}
+{% block hero_subtitle %}Controle centralizado das alíquotas e componentes de custo usados nas precificações.{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <header>
+      <div>
+        <h2 style="margin:0">Cadastro de parâmetros</h2>
+        <p class="small text-muted">Utilize estes valores em relatórios, fórmulas ou integrações.</p>
+      </div>
+      <div class="buttons">
+        <span class="tag">{{ total }} itens</span>
+        {% if user.is_staff %}
+          <a href="{% url 'custos:batch_list' %}" class="button is-secondary">Lotes de custos</a>
+          <a href="{% url 'custos:purchase_costs' %}" class="button is-secondary">Custos de compra</a>
+          <a href="{% url 'custos:parameter_create' %}" class="button is-primary">Novo parâmetro</a>
+        {% endif %}
+      </div>
+    </header>
+  </div>
+
+  <form method="get" class="surface filters-panel" data-aos="fade-up" data-aos-delay="60">
+    <div class="filters-grid">
+      <div>
+        <label class="small text-muted" for="search-params">Pesquisar</label>
+        <div class="field has-addons is-fullwidth">
+          <div class="control is-expanded has-icons-left">
+            <input id="search-params" class="input" type="search" name="q" placeholder="Buscar por nome, chave ou descrição" value="{{ filters.q }}">
+            <span class="icon is-left" data-lucide="search"></span>
+          </div>
+          <div class="control"><button class="button is-primary" type="submit">Pesquisar</button></div>
+          <div class="control"><a class="button is-secondary" href="{% url 'custos:parameter_list' %}">Limpar</a></div>
+        </div>
+      </div>
+      <div class="filter-controls">
+        <div class="field-group">
+          <div class="control">
+            <label class="checkbox small">
+              <input type="checkbox" name="active" value="1" {% if filters.active %}checked{% endif %} onchange="this.form.submit()">
+              Apenas ativos
+            </label>
+          </div>
+          <div class="control">
+            <div class="select is-small">
+              <select name="per_page" onchange="window.location=this.options[this.selectedIndex].dataset.href">
+                {% for n in per_page_options %}
+                  <option value="{{ n }}" data-href="{% per_page_url n %}" {% if per_page == n %}selected{% endif %}>{{ n }}/página</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+        </div>
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ dir }}">
+      </div>
+    </div>
+  </form>
+
+  <div class="box data-card" data-aos="fade-up" data-aos-delay="90">
+    <table class="table is-fullwidth is-hoverable is-compact">
+      <thead>
+        <tr>
+          <th>
+            {% with col='label' %}
+              <a href="{% sort_url col sort dir %}">Nome {% sort_caret col sort dir %}</a>
+            {% endwith %}
+          </th>
+          <th style="width:180px">
+            {% with col='key' %}
+              <a href="{% sort_url col sort dir %}">Chave {% sort_caret col sort dir %}</a>
+            {% endwith %}
+          </th>
+          <th style="width:140px; text-align:right">
+            {% with col='value' %}
+              <a href="{% sort_url col sort dir %}">Valor {% sort_caret col sort dir %}</a>
+            {% endwith %}
+          </th>
+          <th style="width:120px; text-align:center">Tipo</th>
+          <th style="width:100px; text-align:center">Ativo</th>
+          <th style="width:180px">
+            {% with col='updated' %}
+              <a href="{% sort_url col sort dir %}">Atualizado {% sort_caret col sort dir %}</a>
+            {% endwith %}
+          </th>
+          {% if user.is_staff %}
+            <th style="width:80px"></th>
+          {% endif %}
+        </tr>
+      </thead>
+      <tbody>
+        {% if parameters %}
+          {% for item in parameters %}
+            <tr>
+              <td>
+                <strong>{{ item.label }}</strong>
+                {% if item.description %}
+                  <div class="small text-muted">{{ item.description }}</div>
+                {% endif %}
+              </td>
+              <td><code>{{ item.key }}</code></td>
+              <td style="text-align:right">
+                {% if item.is_percentage %}
+                  {{ item.value|floatformat:2 }}%
+                {% elif item.unit %}
+                  {{ item.unit }} {{ item.value|floatformat:2 }}
+                {% else %}
+                  {{ item.value|floatformat:2 }}
+                {% endif %}
+              </td>
+              <td style="text-align:center">{% if item.is_percentage %}Percentual{% else %}Valor{% endif %}</td>
+              <td style="text-align:center">
+                {% if item.is_active %}
+                  <span class="tag is-success is-light">Ativo</span>
+                {% else %}
+                  <span class="tag is-light">Inativo</span>
+                {% endif %}
+              </td>
+              <td>{{ item.updated_at|date:"d/m/Y H:i" }}</td>
+              {% if user.is_staff %}
+                <td style="text-align:right">
+                  <a class="button is-small is-secondary" href="{% url 'custos:parameter_edit' item.pk %}">Editar</a>
+                </td>
+              {% endif %}
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="{% if user.is_staff %}7{% else %}6{% endif %}" class="has-text-centered text-muted">Nenhum parâmetro encontrado.</td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+
+    {% if is_paginated %}
+      <nav class="pagination is-centered" role="navigation" aria-label="Paginação">
+        {% if page_obj.has_previous %}
+          <a class="pagination-previous" href="{% page_url page_obj.previous_page_number %}">Anterior</a>
+        {% else %}
+          <a class="pagination-previous" disabled>Anterior</a>
+        {% endif %}
+        {% if page_obj.has_next %}
+          <a class="pagination-next" href="{% page_url page_obj.next_page_number %}">Próxima</a>
+        {% else %}
+          <a class="pagination-next" disabled>Próxima</a>
+        {% endif %}
+        <ul class="pagination-list">
+          {% for p in page_obj.paginator.page_range %}
+            {% if p == page_obj.number %}
+              <li><a class="pagination-link is-current">{{ p }}</a></li>
+            {% else %}
+              <li><a class="pagination-link" href="{% page_url p %}">{{ p }}</a></li>
+            {% endif %}
+          {% endfor %}
+        </ul>
+      </nav>
+    {% endif %}
+  </div>
+{% endblock %}

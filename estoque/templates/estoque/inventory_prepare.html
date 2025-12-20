@@ -1,0 +1,93 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Novo inventário a partir da seleção{% endblock %}
+{% block hero_title %}Criar inventário{% endblock %}
+{% block hero_subtitle %}Revise os produtos selecionados e cadastre um inventário em rascunho{% endblock %}
+{% block hero_actions %}
+  <a class="button is-light" href="{% url 'products:index' %}">Voltar aos produtos</a>
+{% endblock %}
+
+{% block content %}
+  <section class="data-section">
+    <div class="box data-card">
+      <header>
+        <h2>Produtos selecionados ({{ products|length }})</h2>
+        {% if active_company %}
+          <p class="small text-muted">Empresa ativa: {{ active_company.trade_name|default:active_company.name }}</p>
+        {% endif %}
+        <p class="small text-muted">Confira abaixo os itens que farão parte do inventário. Edite as informações conforme necessário antes de confirmar.</p>
+      </header>
+      <div class="table-container">
+        <table class="table is-fullwidth is-hoverable is-compact">
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th>Código</th>
+              <th>Referência</th>
+              <th>Grupo</th>
+              <th>Subgrupo</th>
+              <th>Estoque atual</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in products %}
+              {% with product=row.product %}
+              <tr>
+                <td><a href="{% url 'products:detail' product.pk %}" target="_blank">{{ product.name }}</a></td>
+                <td>{{ product.code|default:"—" }}</td>
+                <td>{{ product.reference|default:product.supplier_code|default:"—" }}</td>
+                <td>{{ product.product_group|default:"—" }}</td>
+                <td>{{ product.product_subgroup|default:"—" }}</td>
+                <td>{{ row.stock|default:"—" }}</td>
+              </tr>
+              {% endwith %}
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="box data-card" data-aos="fade-up" data-aos-delay="60">
+      <form method="post">
+        {% csrf_token %}
+        <input type="hidden" name="confirm" value="1">
+        {% for pid in selected_ids %}
+          <input type="hidden" name="selected_ids" value="{{ pid }}">
+        {% endfor %}
+
+        <div class="columns">
+          <div class="column is-half">
+            <div class="field">
+              <label class="label" for="{{ form.name.id_for_label }}">Nome do inventário</label>
+              <div class="control">
+                {{ form.name }}
+              </div>
+              {% if form.name.errors %}
+                <p class="help is-danger">{{ form.name.errors.0 }}</p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="{{ form.notes.id_for_label }}">Observações</label>
+          <div class="control">
+            {{ form.notes }}
+          </div>
+          {% if form.notes.errors %}
+            <p class="help is-danger">{{ form.notes.errors.0 }}</p>
+          {% endif %}
+        </div>
+
+        <div class="field is-grouped">
+          <div class="control">
+            <button class="button is-primary" type="submit">Criar inventário em rascunho</button>
+          </div>
+          <div class="control">
+            <a class="button is-light" href="{% url 'products:index' %}">Cancelar</a>
+          </div>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

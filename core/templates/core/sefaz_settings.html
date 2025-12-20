@@ -1,0 +1,195 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Configurações SEFAZ{% endblock %}
+{% block hero_title %}Configurações{% endblock %}
+{% block hero_subtitle %}Defina as credenciais da integração com a SEFAZ{% endblock %}
+
+{% block content %}
+  {% include 'core/settings_nav.html' with active='sefaz' %}
+  <div class="columns" data-aos="fade-up">
+    <div class="column is-two-thirds">
+      <div class="box">
+        <h2 class="title is-4" style="margin-bottom:0.75rem;">Integração com SEFAZ</h2>
+        <p class="subtitle is-6" style="margin-bottom:1.25rem;">Informe o serviço que será consultado e o certificado digital A1 utilizado nas consultas de NF-e.</p>
+        {% if active_company %}
+          <div class="notification is-link is-light" role="status">
+            <strong>Empresa ativa:</strong> {{ active_company.name }} <span class="is-family-monospace">({{ active_company.tax_id }})</span><br>
+            O certificado digital configurado abaixo será utilizado para consultar NF-e emitidas contra esta empresa. Altere a empresa ativa na barra superior, se necessário.
+          </div>
+        {% else %}
+          <div class="notification is-warning is-light" role="status">
+            <strong>Nenhuma empresa ativa selecionada.</strong> Escolha uma empresa na barra superior para vincular as consultas NF-e.
+          </div>
+        {% endif %}
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          <h3 class="title is-6" style="margin-top:1rem;">1. Credenciais da API</h3>
+          <p class="help" style="margin-bottom:1rem;">Campos referentes ao serviço de consulta cadastral (CNPJ). Utilize a URL, token e timeout fornecidos pelo provedor ou UF responsável.</p>
+          <div class="field">
+            {{ form.base_url.label_tag }}
+            <div class="control">
+              {{ form.base_url }}
+            </div>
+            {% if form.base_url.errors %}
+              <p class="help is-danger">{{ form.base_url.errors.0 }}</p>
+            {% else %}
+              <p class="help">Ex.: <code>https://www.nfe.fazenda.gov.br/v1</code></p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.token.label_tag }}
+            <div class="control">
+              {{ form.token }}
+            </div>
+            {% if form.token.errors %}
+              <p class="help is-danger">{{ form.token.errors.0 }}</p>
+            {% else %}
+              <p class="help">Preencha apenas se o fornecedor exigir autenticação via token.</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.timeout.label_tag }}
+            <div class="control">
+              {{ form.timeout }}
+            </div>
+            {% if form.timeout.errors %}
+              <p class="help is-danger">{{ form.timeout.errors.0 }}</p>
+            {% else %}
+              <p class="help">Tempo máximo (segundos) que aguardaremos pela resposta da API.</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.environment.label_tag }}
+            <div class="control">
+              <div class="select is-fullwidth">
+                {{ form.environment }}
+              </div>
+            </div>
+            {% if form.environment.errors %}
+              <p class="help is-danger">{{ form.environment.errors.0 }}</p>
+            {% else %}
+              <p class="help">Escolha Produção para consultas oficiais ou Homologação para testes.</p>
+            {% endif %}
+          </div>
+
+          <hr>
+          <h3 class="title is-6" style="margin-top:1.3rem;">2. Certificado Digital A1</h3>
+          <p class="help" style="margin-bottom:1rem;">Envie o arquivo .pfx/.p12 emitido para a empresa ativa informada acima e digite a senha do certificado. Ele é obrigatório para acessar o serviço NFeDistribuicaoDFe.</p>
+          <div class="field">
+            {{ form.certificate_file.label_tag }}
+            <div class="file has-name is-fullwidth">
+              <label class="file-label">
+                {{ form.certificate_file }}
+                <span class="file-cta">
+                  <span class="file-icon">📁</span>
+                  <span class="file-label">Escolher arquivo…</span>
+                </span>
+                <span class="file-name" data-target="certificate-file-name">Nenhum arquivo selecionado</span>
+              </label>
+            </div>
+            {% if form.certificate_file.errors %}
+              <p class="help is-danger">{{ form.certificate_file.errors.0 }}</p>
+            {% elif form.certificate_file.help_text %}
+              <p class="help">{{ form.certificate_file.help_text }}</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.certificate_password.label_tag }}
+            <div class="control">
+              {{ form.certificate_password }}
+            </div>
+            {% if form.certificate_password.errors %}
+              <p class="help is-danger">{{ form.certificate_password.errors.0 }}</p>
+            {% elif form.certificate_password.help_text %}
+              <p class="help">{{ form.certificate_password.help_text }}</p>
+            {% endif %}
+          </div>
+          {% if form.has_certificate %}
+            <article class="message is-info">
+              <div class="message-header">
+                <p>Certificado atual</p>
+              </div>
+              <div class="message-body">
+                <p>Se preferir apagar o certificado cadastrado, marque a opção abaixo.</p>
+                <label class="checkbox" style="margin-top:0.25rem;">
+                  {{ form.clear_certificate }} Remover o certificado digital configurado
+                </label>
+                {% if form.clear_certificate.errors %}
+                  <p class="help is-danger" style="margin-top:0.5rem;">{{ form.clear_certificate.errors.0 }}</p>
+                {% else %}
+                  <p class="help" style="margin-top:0.5rem;">A remoção interrompe imediatamente as consultas NF-e.</p>
+                {% endif %}
+              </div>
+            </article>
+          {% endif %}
+
+          <div class="field is-grouped is-justify-content-flex-end" style="margin-top:1.5rem;">
+            <div class="control">
+              <button class="button is-primary" type="submit">Salvar configurações</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="column">
+      <div class="box">
+        <h3 class="title is-6">Resumo da configuração</h3>
+        <p>
+          {% if config.base_url %}
+            <span class="tag is-success is-light">Endpoint configurado</span>
+          {% else %}
+            <span class="tag is-warning is-light">Endpoint pendente</span>
+          {% endif %}
+        </p>
+        <p class="small text-muted" style="margin-top:0.5rem;">
+          Última atualização em {{ config.updated_at }}{% if config.updated_by %} por {{ config.updated_by.get_full_name|default:config.updated_by.username }}{% endif %}.
+        </p>
+        <hr>
+        {% if config.certificate_file %}
+          <p><strong>Proprietário (CN):</strong> {{ config.certificate_subject|default:'Arquivo importado' }}</p>
+          {% if config.certificate_serial_number %}
+            <p class="small text-muted">Série: {{ config.certificate_serial_number }}</p>
+          {% endif %}
+          {% if config.certificate_valid_from or config.certificate_valid_until %}
+            <p class="small text-muted">
+              Válido {% if config.certificate_valid_from %}de {{ config.certificate_valid_from|date:"d/m/Y H:i" }}{% endif %}
+              {% if config.certificate_valid_until %}até {{ config.certificate_valid_until|date:"d/m/Y H:i" }}{% endif %}
+            </p>
+          {% endif %}
+          {% if config.certificate_uploaded_at %}
+            <p class="small text-muted">Importado em {{ config.certificate_uploaded_at|date:"d/m/Y H:i" }}.</p>
+          {% endif %}
+        {% else %}
+          <p><span class="tag is-warning is-light">Certificado não cadastrado</span></p>
+          <p class="small text-muted" style="margin-top:0.5rem;">Envie o arquivo .pfx/.p12 emitido para a empresa ativa para habilitar as consultas NF-e.</p>
+        {% endif %}
+        <p class="small text-muted" style="margin-top:1rem;">Integração via API: utilize <code>{{ request.scheme }}://{{ request.get_host }}{% url 'api-sefaz-config' %}</code> (autenticação obrigatória, métodos GET/PUT/PATCH).</p>
+      </div>
+      <div class="box">
+        <h3 class="title is-6">Como funciona?</h3>
+        <ul class="small text-muted" style="list-style:disc; padding-left:1.1rem;">
+          <li>Clientes, fornecedores e empresas podem preencher dados via “Consultar SEFAZ” usando a API configurada.</li>
+          <li>Com o certificado A1 cadastrado, o sistema consulta NF-e (NFeDistribuicaoDFe) para a empresa ativa.</li>
+          <li>Troque o ambiente entre homologação e produção conforme o estágio do projeto.</li>
+          <li>Após alterar qualquer campo, salve para que novas consultas usem as credenciais atualizadas.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      const input = document.querySelector('input[type="file"][name="{{ form.certificate_file.html_name }}"]');
+      if (!input) return;
+      const target = document.querySelector('[data-target="certificate-file-name"]');
+      input.addEventListener('change', function () {
+        if (!target) return;
+        if (this.files && this.files.length > 0) {
+          target.textContent = this.files[0].name;
+        } else {
+          target.textContent = 'Nenhum arquivo selecionado';
+        }
+      });
+    }());
+  </script>
+{% endblock %}

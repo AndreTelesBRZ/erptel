@@ -1,0 +1,209 @@
+{% extends 'core/base.html' %}
+
+{% block title %}NF-e - {{ company.name }}{% endblock %}
+{% block hero_title %}NF-e{% endblock %}
+{% block hero_subtitle %}Notas emitidas contra {{ company.trade_name|default:company.name }}{% endblock %}
+
+{% block content %}
+  <nav class="breadcrumb" aria-label="breadcrumbs">
+    <ul>
+      <li><a href="{% url 'companies:list' %}">Empresas</a></li>
+      <li class="is-active"><a aria-current="page">NF-e</a></li>
+    </ul>
+  </nav>
+
+  <div class="columns">
+    <div class="column is-7">
+      <article class="message is-link">
+        <div class="message-header">
+          <p>Empresa selecionada</p>
+        </div>
+        <div class="message-body">
+          <h2 class="title is-5" style="margin-bottom:0.25rem;">{{ company.trade_name|default:company.name }}</h2>
+          <p class="is-family-monospace" style="margin-bottom:0.5rem;">CNPJ: {{ company.tax_id }}</p>
+          <p class="help" style="margin-bottom:0;">
+            As consultas abaixo utilizam o certificado digital A1 configurado em <a href="{% url 'core:settings_sefaz' %}">Sistema &gt; Configurações &gt; Integração SEFAZ</a>.
+          </p>
+        </div>
+      </article>
+    </div>
+    <div class="column">
+      <div class="box">
+        <p class="heading has-text-centered">Consulta via API</p>
+        <p class="has-text-centered" style="margin-bottom:0.75rem;">Use a rota JSON:</p>
+        <p class="has-text-centered"><code>{{ request.scheme }}://{{ request.get_host }}{% url 'api-company-nfe' company.pk %}?last_nsu=&lt;valor&gt;&amp;issued_from=&lt;AAAA-MM-DD&gt;</code></p>
+        <p class="help has-text-centered" style="margin-top:0.35rem;">(requisições autenticadas com a sessão atual)</p>
+        <hr>
+        <p class="heading has-text-centered">Configuração da API</p>
+        <p class="help">Atualize as credenciais via tela “Integração SEFAZ” ou chamando <code>{{ request.scheme }}://{{ request.get_host }}{% url 'api-sefaz-config' %}</code> (GET/PUT/PATCH com autenticação).</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="box">
+    <h2 class="title is-5">Consultar documentos</h2>
+    <form method="get" class="columns is-multiline">
+      <div class="column is-full">
+        <p class="help">Combine os filtros conforme necessário. Se nenhum campo for informado, o sistema busca a partir do último NSU conhecido (padrão <code>000000000000000</code>).</p>
+      </div>
+      <div class="column is-6">
+        <div class="field">
+          <label class="label" for="id_issued_from">Emissão a partir de</label>
+          <div class="control">
+            <input class="input" type="datetime-local" id="id_issued_from" name="issued_from" value="{{ params.issued_from|default:''|slice:':16' }}">
+          </div>
+          <p class="help">Formato ISO: AAAA-MM-DD ou AAAA-MM-DDTHH:MM.</p>
+        </div>
+      </div>
+      <div class="column is-6">
+        <div class="field">
+          <label class="label" for="id_issued_until">Emissão até</label>
+          <div class="control">
+            <input class="input" type="datetime-local" id="id_issued_until" name="issued_until" value="{{ params.issued_until|default:''|slice:':16' }}">
+          </div>
+        </div>
+      </div>
+      <div class="column is-6">
+        <div class="field">
+          <label class="label" for="id_authorized_from">Recebimento a partir de</label>
+          <div class="control">
+            <input class="input" type="datetime-local" id="id_authorized_from" name="authorized_from" value="{{ params.authorized_from|default:''|slice:':16' }}">
+          </div>
+        </div>
+      </div>
+      <div class="column is-6">
+        <div class="field">
+          <label class="label" for="id_authorized_until">Recebimento até</label>
+          <div class="control">
+            <input class="input" type="datetime-local" id="id_authorized_until" name="authorized_until" value="{{ params.authorized_until|default:''|slice:':16' }}">
+          </div>
+        </div>
+      </div>
+      <div class="column is-4">
+        <div class="field">
+          <label class="label" for="id_last_nsu">Último NSU conhecido</label>
+          <div class="control">
+            <input class="input" type="text" id="id_last_nsu" name="last_nsu" maxlength="15" placeholder="000000000000000" value="{{ params.last_nsu }}">
+          </div>
+          <p class="help">Utilizado para recuperar documentos mais recentes do que este NSU.</p>
+        </div>
+      </div>
+      <div class="column is-4">
+        <div class="field">
+          <label class="label" for="id_nsu">Consultar NSU específico</label>
+          <div class="control">
+            <input class="input" type="text" id="id_nsu" name="nsu" maxlength="15" placeholder="Número sequencial único" value="{{ params.nsu }}">
+          </div>
+        </div>
+      </div>
+      <div class="column is-4">
+        <div class="field">
+          <label class="label" for="id_access_key">Chave de acesso (44 dígitos)</label>
+          <div class="control">
+            <input class="input" type="text" id="id_access_key" name="access_key" maxlength="44" placeholder="Chave completa da NF-e" value="{{ params.access_key }}">
+          </div>
+        </div>
+      </div>
+      <div class="column is-full">
+        <div class="field is-grouped">
+          <div class="control">
+            <button class="button is-primary" type="submit">Consultar</button>
+          </div>
+          <div class="control">
+            <a class="button is-light" href="{% url 'companies:nfe' company.pk %}">Limpar filtros</a>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  {% if error %}
+    <div class="notification is-danger" role="alert">
+      {{ error }}
+    </div>
+  {% endif %}
+
+  {% if result %}
+    <div class="columns">
+      <div class="column is-one-third">
+        <div class="box">
+          <h3 class="title is-6">Retorno da SEFAZ</h3>
+          <p><strong>Código:</strong> {{ result.status_code }}</p>
+          <p><strong>Mensagem:</strong> {{ result.status_message }}</p>
+          <p><strong>Último NSU retornado:</strong> {{ result.last_nsu }}</p>
+          <p><strong>Maior NSU disponível:</strong> {{ result.max_nsu }}</p>
+          <p><strong>Total de documentos:</strong> {{ result.documents|length }}</p>
+        </div>
+      </div>
+      <div class="column">
+        <div class="box">
+          <h3 class="title is-6">Documentos encontrados</h3>
+          {% if result.documents %}
+            <div class="table-container">
+              <table class="table is-fullwidth is-striped">
+                <thead>
+                  <tr>
+                    <th>NSU</th>
+                    <th>Tipo</th>
+                    <th>Chave</th>
+                    <th>Emitente</th>
+                    <th>Emissão</th>
+                    <th>Recebimento</th>
+                    <th class="has-text-right">Valor</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {% for doc in result.documents %}
+                    <tr>
+                      <td>{{ doc.nsu }}</td>
+                      <td>{{ doc.document_type }}</td>
+                      <td><span class="is-family-monospace">{{ doc.access_key|default:'—' }}</span></td>
+                      <td>
+                        <strong>{{ doc.issuer_name|default:'—' }}</strong><br>
+                        <small class="is-family-monospace">{{ doc.issuer_tax_id|default:'—' }}</small>
+                      </td>
+                      <td>
+                        {% if doc.issue_datetime %}
+                          {{ doc.issue_datetime|date:"d/m/Y H:i" }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td>
+                        {% if doc.authorization_datetime %}
+                          {{ doc.authorization_datetime|date:"d/m/Y H:i" }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td class="has-text-right">
+                        {% if doc.total_value is not None %}
+                          R$ {{ doc.total_value|floatformat:2 }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </td>
+                      <td>
+                        <details>
+                          <summary>Ver XML</summary>
+                          <pre style="white-space:pre-wrap; max-height:240px; overflow:auto; margin-top:0.5rem;">{{ doc.raw_xml|escape }}</pre>
+                        </details>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          {% else %}
+            <p class="has-text-grey">Nenhum documento retornado para os parâmetros informados.</p>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  {% elif not error %}
+    <div class="notification is-warning is-light">
+      Nenhuma resposta foi retornada pela SEFAZ.
+    </div>
+  {% endif %}
+{% endblock %}

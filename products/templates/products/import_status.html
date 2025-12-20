@@ -1,0 +1,107 @@
+{% extends 'core/base.html' %}
+
+{% block content %}
+<section class="section">
+  <div class="container">
+    <h1 class="title">Importação de Produtos</h1>
+    <p>Acompanhe o progresso da importação em tempo real.</p>
+
+    <div class="box">
+      <progress id="prog" class="progress is-primary" value="0" max="100">0%</progress>
+      <p>
+        Processados: <strong id="processed">0</strong> / <span id="total">0</span>
+        • Criados: <strong id="created">0</strong>
+        • Atualizados: <strong id="updated">0</strong>
+      </p>
+      <div id="done" class="notification is-success is-hidden" aria-live="polite"></div>
+    </div>
+
+    <div class="box">
+      <h2 class="subtitle">Detalhes</h2>
+      <ul id="details" class="content" style="max-height: 160px; overflow:auto;"></ul>
+    </div>
+
+    <div class="box">
+      <h2 class="subtitle">Erros</h2>
+      <ul id="errors" class="content" style="max-height: 240px; overflow:auto;">
+      </ul>
+      <p><a id="download-errors" class="button is-light" href="#" style="display:none">Baixar erros (CSV)</a></p>
+    </div>
+
+    <p>
+      <a class="button" href="{% url 'products:index' %}">Voltar para Produtos</a>
+    </p>
+  </div>
+  <script>(function(){ /* placeholder for layout consistency */ })();</script>
+</section>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+  (function(){
+    const key = "{{ key }}";
+    const url = `{% url 'products:import_progress' key='__KEY__' %}`.replace('__KEY__', key);
+    const prog = document.getElementById('prog');
+    const processed = document.getElementById('processed');
+    const total = document.getElementById('total');
+    const created = document.getElementById('created');
+    const updated = document.getElementById('updated');
+    const errs = document.getElementById('errors');
+    const details = document.getElementById('details');
+    const doneBox = document.getElementById('done');
+    const btnErrors = document.getElementById('download-errors');
+
+    function render(state){
+      const t = state.total || 0;
+      const p = state.processed || 0;
+      const cr = state.created || 0;
+      const up = state.updated || 0;
+      processed.textContent = p;
+      total.textContent = t;
+      created.textContent = cr;
+      updated.textContent = up;
+      const pct = (t>0) ? Math.round((p*100)/t) : 0;
+      prog.value = pct;
+      prog.textContent = pct + '%';
+      errs.innerHTML = '';
+      const errsArr = (state.errors || []);
+      errsArr.forEach(function(e){
+        const li = document.createElement('li');
+        li.textContent = e;
+        errs.appendChild(li);
+      });
+      btnErrors.style.display = errsArr.length ? '' : 'none';
+      btnErrors.href = `{% url 'products:import_errors_csv' key='__KEY__' %}`.replace('__KEY__', key);
+      // details
+      details.innerHTML = '';
+      const d = [];
+      if(state.encoding){ d.push('Encoding: '+state.encoding); }
+      if(state.file_size){ d.push('Tamanho: '+state.file_size+' bytes'); }
+      if(state.headers && state.headers.length){ d.push('Cabeçalhos: '+state.headers.join(' | ')); }
+      if(state.started_at){ d.push('Início: '+state.started_at); }
+      if(state.finished_at){ d.push('Término: '+state.finished_at); }
+      if(state.attempts && state.attempts.length){ d.push('Tentativas: '+state.attempts.join(', ')); }
+      d.forEach(function(text){ const li=document.createElement('li'); li.textContent=text; details.appendChild(li); });
+      if(state.done){
+        doneBox.textContent = 'Importação concluída.';
+        doneBox.classList.remove('is-hidden');
+      }
+    }
+
+    async function poll(){
+      try{
+        const r = await fetch(url, {credentials:'same-origin', cache:'no-store'});
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        const data = await r.json();
+        render(data);
+        if(!data.done){
+          setTimeout(poll, 700);
+        }
+      }catch(err){
+        setTimeout(poll, 1200);
+      }
+    }
+    poll();
+  })();
+</script>
+{% endblock %}

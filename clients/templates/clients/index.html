@@ -1,29 +1,216 @@
 {% extends 'core/base.html' %}
+{% load ui_extras %}
 
 {% block title %}Clientes{% endblock %}
+{% block hero_title %}Clientes{% endblock %}
+{% block hero_subtitle %}Cadastro de clientes e contatos{% endblock %}
+{% block hero_meta %}
+  <div class="quick-stats">
+    <span class="chip"><span class="icon" data-lucide="users"></span> {{ total }} clientes</span>
+    <span class="chip"><span class="icon" data-lucide="phone"></span> {{ filters.has_phone|yesno:"Com telefone,Todos" }}</span>
+  </div>
+{% endblock %}
+{% block hero_actions %}
+  <a class="button is-secondary" href="{% url 'clients:report' %}">Relatório</a>
+{% endblock %}
 
 {% block content %}
-  <h1 class="title">Clientes</h1>
-  <p><a class="button is-primary" href="{% url 'clients:create' %}">Criar Cliente</a>
-  <a class="button" href="{% url 'clients:report' %}">Relatório</a></p>
-  <table class="table is-fullwidth">
+  <div class="box data-card" data-aos="fade-up">
+    <header>
+      <div>
+        <h2 style="margin:0">Lista de clientes</h2>
+        <p class="small text-muted">Gerencie cadastros e gere relatórios personalizados.</p>
+      </div>
+      <div class="buttons">
+        <span class="tag">{{ total }} itens</span>
+        {% if user.is_authenticated %}
+          <button class="button is-secondary" type="submit" form="clients-pdf-form">Gerar PDF</button>
+        {% endif %}
+      </div>
+    </header>
+  </div>
+
+  <form method="get" class="surface filters-panel" data-aos="fade-up" data-aos-delay="60">
+    <div class="filters-grid">
+      <div>
+        <label class="small text-muted" for="search-clients">Pesquisar clientes</label>
+        <div class="field has-addons is-fullwidth">
+          <div class="control is-expanded has-icons-left">
+            <input id="search-clients" class="input" type="search" name="q" placeholder="Nome, e-mail ou documento (use % como curinga)" value="{{ filters.q }}" />
+            <span class="icon is-left" data-lucide="search"></span>
+          </div>
+          <div class="control"><button class="button is-primary" type="submit">Pesquisar</button></div>
+          <div class="control"><a class="button is-secondary" href="{% url 'clients:index' %}">Limpar</a></div>
+        </div>
+      </div>
+      <div class="filter-controls">
+        <div class="field-group">
+          <div class="control">
+            <label class="checkbox">
+              <input type="checkbox" name="has_phone" value="1" {% if filters.has_phone %}checked{% endif %}>
+              Com telefone
+            </label>
+          </div>
+          <div class="control">
+            <div class="select is-small">
+              <select name="per_page" onchange="window.location=this.options[this.selectedIndex].dataset.href">
+                {% for n in per_page_options %}
+                  <option value="{{ n }}" data-href="{% per_page_url n %}" {% if per_page == n %}selected{% endif %}>{{ n }}/página</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="control">
+            <label class="checkbox small">
+              <input type="checkbox" {% if dense %}checked{% endif %}
+                     onchange="window.location=this.checked ? '{% qs_url dense='1' page='1' %}' : '{% qs_url dense='0' page='1' %}'">
+              Visualização compacta
+            </label>
+          </div>
+        </div>
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ dir }}">
+      </div>
+    </div>
+  </form>
+
+  {% if filters.q or filters.has_phone %}
+  <div class="tags are-medium" style="margin-top:0.5rem">
+    {% if filters.q %}
+      <a class="tag is-info is-light" href="{% qs_url q=None page='1' %}">Busca: "{{ filters.q }}" ×</a>
+    {% endif %}
+    {% if filters.has_phone %}
+      <a class="tag is-success is-light" href="{% qs_url has_phone=None page='1' %}">Com telefone ×</a>
+    {% endif %}
+    <a class="tag is-light" href="{% url 'clients:index' %}">Limpar</a>
+  </div>
+  {% endif %}
+
+  <div class="box data-card" data-aos="fade-up" data-aos-delay="100">
+    <form id="clients-pdf-form" method="post" action="{% url 'clients:report_pdf' %}">
+      {% csrf_token %}
+      <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
+      <table class="table is-fullwidth is-hoverable {% if dense %}is-compact{% endif %}">
     <thead>
-      <tr><th>Name</th><th>Email</th><th>Created</th><th></th></tr>
+      <tr>
+        {% if user.is_authenticated %}
+          <th class="is-narrow">
+            <label class="checkbox">
+              <input type="checkbox" id="select-all-clients">
+            </label>
+          </th>
+        {% endif %}
+        <th>
+          {% with col='name' %}
+            <a href="{% sort_url col sort dir %}">Nome {% sort_caret col sort dir %}</a>
+          {% endwith %}
+        </th>
+        <th>
+          {% with col='document' %}
+            <a href="{% sort_url col sort dir %}">Documento {% sort_caret col sort dir %}</a>
+          {% endwith %}
+        </th>
+        <th>
+          {% with col='email' %}
+            <a href="{% sort_url col sort dir %}">Email {% sort_caret col sort dir %}</a>
+          {% endwith %}
+        </th>
+        <th>Telefone</th>
+        <th>
+          {% with col='created' %}
+            <a href="{% sort_url col sort dir %}">Criado em {% sort_caret col sort dir %}</a>
+          {% endwith %}
+        </th>
+        <th style="width:140px"></th>
+      </tr>
     </thead>
     <tbody>
       {% for c in clients %}
       <tr>
-  <td><a href="{% url 'clients:detail' c.pk %}">{{ c.first_name }} {{ c.last_name }}</a></td>
+        {% if user.is_authenticated %}
+          <td>
+            <label class="checkbox">
+              <input type="checkbox" name="client_ids" value="{{ c.pk }}" class="client-select">
+            </label>
+          </td>
+        {% endif %}
+        <td>
+          <a href="{% url 'clients:detail' c.pk %}">{{ c.first_name }} {{ c.last_name }}</a>
+          <div class="small text-muted">Código: {{ c.code }}</div>
+        </td>
+        <td>{{ c.formatted_document|default:'—' }}</td>
         <td>{{ c.email }}</td>
+        <td>{{ c.phone|default:'—' }}</td>
         <td>{{ c.created_at }}</td>
         <td>
-          <a class="button is-small" href="{% url 'clients:update' c.pk %}">Edit</a>
-          <a class="button is-small is-danger" href="{% url 'clients:delete' c.pk %}">Delete</a>
+          <div class="buttons are-small">
+            <span class="tag is-light">Somente leitura</span>
+          </div>
         </td>
       </tr>
       {% empty %}
-  <tr><td colspan="4">Nenhum cliente encontrado.</td></tr>
+      <tr><td colspan="{% if user.is_authenticated %}7{% else %}6{% endif %}">Nenhum cliente encontrado.</td></tr>
       {% endfor %}
     </tbody>
-  </table>
+      </table>
+    </form>
+  </div>
+
+  {% if is_paginated %}
+  <nav class="pagination is-centered" role="navigation" aria-label="pagination">
+    {% if page_obj.has_previous %}
+      <a class="pagination-previous" href="{% page_url page_obj.previous_page_number %}">Anterior</a>
+    {% else %}
+      <a class="pagination-previous" disabled>Anterior</a>
+    {% endif %}
+    {% if page_obj.has_next %}
+      <a class="pagination-next" href="{% page_url page_obj.next_page_number %}">Próxima</a>
+    {% else %}
+      <a class="pagination-next" disabled>Próxima</a>
+    {% endif %}
+    <ul class="pagination-list">
+      {% for p in page_obj.paginator.page_range %}
+        {% if p == page_obj.number %}
+          <li><a class="pagination-link is-current">{{ p }}</a></li>
+        {% else %}
+          <li><a class="pagination-link" href="{% page_url p %}">{{ p }}</a></li>
+        {% endif %}
+      {% endfor %}
+    </ul>
+  </nav>
+  {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  {% if user.is_authenticated and clients %}
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const selectAll = document.getElementById('select-all-clients');
+      const checkboxes = Array.from(document.querySelectorAll('#clients-pdf-form .client-select'));
+      const submitBtn = document.querySelector('button[form="clients-pdf-form"]');
+
+      function updateButtonState() {
+        if (!submitBtn) return;
+        const anyChecked = checkboxes.some(cb => cb.checked);
+        submitBtn.disabled = !anyChecked;
+      }
+
+      if (selectAll) {
+        selectAll.addEventListener('change', function () {
+          checkboxes.forEach(cb => {
+            cb.checked = selectAll.checked;
+          });
+          updateButtonState();
+        });
+      }
+
+      checkboxes.forEach(cb => {
+        cb.addEventListener('change', updateButtonState);
+      });
+
+      updateButtonState();
+    });
+  </script>
+  {% endif %}
 {% endblock %}

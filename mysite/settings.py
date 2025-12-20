@@ -11,21 +11,50 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
 from pathlib import Path
+import os
+from corsheaders.defaults import default_headers
+
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
+# Optional support for django-environ (DATABASE_URL)
+try:  # noqa: SIM105
+    import environ as _environ  # type: ignore
+except Exception:  # django-environ not installed
+    _environ = None  # type: ignore
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# Load environment variables from .env if available
+if load_dotenv:
+    load_dotenv(BASE_DIR / '.env')
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-%04g)mwv*rk3ti^o-dm9ho6&c$o#@24fd78hv49&uzb^o+h@x0'
+SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-%04g)mwv*rk3ti^o-dm9ho6&c$o#@24fd78hv49&uzb^o+h@x0')
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+def _env_bool(name: str, default: bool) -> bool:
+    v = os.getenv(name)
+    if v is None:
+        return default
+    return v.strip().lower() in ('1','true','yes','y','on')
 
-ALLOWED_HOSTS = []
+DEBUG = _env_bool('DEBUG', True)
+
+_allowed = os.getenv('ALLOWED_HOSTS')
+ALLOWED_HOSTS = [h.strip() for h in _allowed.split(',')] if _allowed else []
+
+_csrf_trusted = os.getenv('CSRF_TRUSTED_ORIGINS')
+CSRF_TRUSTED_ORIGINS = [o.strip() for o in _csrf_trusted.split(',')] if _csrf_trusted else []
+
+# Allow large collector forms (muitos campos por POST)
+DATA_UPLOAD_MAX_NUMBER_FIELDS = int(os.getenv('DATA_UPLOAD_MAX_NUMBER_FIELDS', '20000'))
 
 # Authentication redirects
 LOGIN_URL = 'login'
@@ -42,18 +71,34 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.postgres',
+    'corsheaders',
+    'rest_framework',
+    'rest_framework.authtoken',
+    'django_filters',
     'core',
     'products',
     'clients',
+    'sales',
+    'companies',
+    'purchases',
+    'finance',
+    'relatorios',
+    'estoque',
+    'custos',
+    'api',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.locale.LocaleMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'core.middleware.ActiveCompanyMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -71,6 +116,8 @@ TEMPLATES = [
                     'django.template.context_processors.i18n',
                     'django.contrib.auth.context_processors.auth',
                     'django.contrib.messages.context_processors.messages',
+                    'core.context_processors.active_company',
+                    'core.context_processors.user_profile',
             ],
         },
     },
@@ -82,12 +129,88 @@ WSGI_APPLICATION = 'mysite.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
-    }
+"""Configuração de banco de dados
+Prioridade:
+  1) Se django-environ estiver instalado e existir DATABASE_URL, usar env.db.
+  2) Caso contrário, usar variáveis (DB_ENGINE + POSTGRES_* | PG*).
+  3) Padrão: SQLite local.
+"""
+
+_db_engine = os.getenv('DB_ENGINE', '').lower()
+_db_url = os.getenv('DATABASE_URL', '')
+
+if _db_url and _environ:
+    _env = _environ.Env()
+    # load .env if present (além do python-dotenv acima) — inócuo se não existir
+    try:
+        _environ.Env.read_env(BASE_DIR / '.env')
+    except Exception:
+        pass
+    try:
+        db_cfg = _env.db('DATABASE_URL')  # API recente
+    except Exception:
+        db_cfg = _env.db_url('DATABASE_URL')  # fallback p/ versões antigas
+    DATABASES = {'default': db_cfg}
+else:
+    # Database (SQLite por padrão; Postgres via variáveis de ambiente)
+    # Variáveis suportadas para Postgres:
+    #   DB_ENGINE=postgres|postgresql (ou DATABASE_URL iniciando com 'postgres')
+    #   POSTGRES_DB / PGDATABASE, POSTGRES_USER / PGUSER, POSTGRES_PASSWORD / PGPASSWORD
+    #   POSTGRES_HOST / PGHOST, POSTGRES_PORT / PGPORT, DB_SSLMODE
+    _use_pg = (
+        _db_engine in ('postgres', 'postgresql') or (
+            _db_engine == '' and (
+                _db_url.startswith('postgres') or
+                os.getenv('POSTGRES_DB') or os.getenv('PGDATABASE')
+            )
+        )
+    )
+
+    if _use_pg:
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.postgresql',
+                'NAME': os.getenv('POSTGRES_DB') or os.getenv('PGDATABASE', 'erptel'),
+                'USER': os.getenv('POSTGRES_USER') or os.getenv('PGUSER', 'postgres'),
+                'PASSWORD': os.getenv('POSTGRES_PASSWORD') or os.getenv('PGPASSWORD', 'minhasenha'),
+                'HOST': os.getenv('POSTGRES_HOST') or os.getenv('PGHOST', '127.0.0.1'),
+                'PORT': os.getenv('POSTGRES_PORT') or os.getenv('PGPORT', '5432'),
+                'CONN_MAX_AGE': int(os.getenv('DB_CONN_MAX_AGE', '60')),
+                'OPTIONS': {
+                    'sslmode': os.getenv('DB_SSLMODE', 'disable'),
+                },
+            }
+        }
+
+    else:
+        DATABASES = {
+            'default': {
+                'ENGINE': 'django.db.backends.sqlite3',
+                'NAME': BASE_DIR / 'db.sqlite3',
+            }
+        }
+
+
+REST_FRAMEWORK = {
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    'PAGE_SIZE': 50,
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.TokenAuthentication',
+    ],
 }
+
+# CORS (liberado para desenvolvimento; ajuste em produção)
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_HEADERS = list(default_headers) + ['x-app-token']
+
+# Token de integração usado pelo app React (opcional; se vazio, permissão libera)
+APP_INTEGRATION_TOKEN = os.getenv('APP_INTEGRATION_TOKEN', '')
 
 
 # Password validation
@@ -114,21 +237,42 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'pt-br'
 
-TIME_ZONE = 'America/Sao_Paulo'
+TIME_ZONE = os.getenv('TIME_ZONE', 'America/Sao_Paulo')
 
 USE_I18N = True
 
 USE_TZ = True
 
+SEFAZ_API_BASE_URL = os.getenv('SEFAZ_API_BASE_URL', '')
+SEFAZ_API_TOKEN = os.getenv('SEFAZ_API_TOKEN', '')
+try:
+    SEFAZ_API_TIMEOUT = int(os.getenv('SEFAZ_API_TIMEOUT', '10'))
+except ValueError:
+    SEFAZ_API_TIMEOUT = 10
+
 # Locales
-import os
 LOCALE_PATHS = [os.path.join(BASE_DIR, 'locale')]
+
+# Email (console por padrão para testes)
+EMAIL_BACKEND = os.getenv('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+DEFAULT_FROM_EMAIL = os.getenv('DEFAULT_FROM_EMAIL', 'ERP <no-reply@example.com>')
 
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
-STATIC_URL = 'static/'
+STATIC_URL = '/static/'
+# Serve project-level static/ directory in development
+from pathlib import Path as _Path
+STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
+# Where collectstatic will gather assets for production
+STATIC_ROOT = BASE_DIR / 'staticfiles'
+
+# Media files (uploads)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

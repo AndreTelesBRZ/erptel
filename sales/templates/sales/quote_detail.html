@@ -1,0 +1,82 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Orçamento {{ quote.number }}{% endblock %}
+{% block hero_title %}Orçamento {{ quote.number }}{% endblock %}
+{% block hero_subtitle %}Detalhes do orçamento{% endblock %}
+
+{% block content %}
+  <div class="level">
+    <div class="level-left">
+      <div>
+        <p class="title is-4">Cliente</p>
+        <p>{{ quote.client }}</p>
+      </div>
+    </div>
+    <div class="level-right">
+      <div class="buttons">
+        {% if sales_permissions.manage and sales_permissions.edit %}
+          <a class="button" href="{% url 'sales:quote_edit' quote.pk %}">Editar</a>
+        {% endif %}
+        {% if quote.status != quote.Status.CONVERTED and sales_permissions.manage and sales_permissions.create %}
+          <form method="post" action="{% url 'sales:quote_convert' quote.pk %}" style="display:inline">
+            {% csrf_token %}
+            <button class="button is-primary" type="submit">Gerar pedido</button>
+          </form>
+        {% endif %}
+        <a class="button is-secondary" href="{% url 'sales:quote_pdf' quote.pk %}" target="_blank" rel="noopener">Gerar PDF</a>
+        <a class="button is-light" href="{% url 'sales:quote_list' %}">Voltar</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="columns">
+    <div class="column is-4">
+      <div class="box">
+        <p><strong>Status:</strong> {{ quote.get_status_display }}</p>
+        <p><strong>Válido até:</strong> {% if quote.valid_until %}{{ quote.valid_until|date:"d/m/Y" }}{% else %}—{% endif %}</p>
+        <p><strong>Criado em:</strong> {{ quote.created_at|date:"d/m/Y H:i" }}</p>
+        <p><strong>Atualizado em:</strong> {{ quote.updated_at|date:"d/m/Y H:i" }}</p>
+        {% if quote.salesperson %}
+          <p><strong>Vendedor:</strong> {{ quote.salesperson }}</p>
+        {% endif %}
+        {% if quote.notes %}
+          <hr>
+          <p class="small text-muted">Observações</p>
+          <p>{{ quote.notes|linebreaksbr }}</p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="column">
+      <div class="box">
+        <h2 class="title is-6">Itens</h2>
+        <table class="table is-fullwidth">
+          <thead>
+            <tr>
+              <th>Descrição</th>
+              <th style="width:120px">Qtd</th>
+              <th style="width:140px">Entrega (dias)</th>
+              <th style="width:140px">Preço</th>
+              <th style="width:120px">Desconto</th>
+              <th style="width:140px">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in quote_items %}
+              <tr>
+                <td>{{ item.effective_description }}</td>
+                <td>{{ item.quantity }}</td>
+                <td>{{ item.delivery_days|default_if_none:"—" }}</td>
+                <td>R$ {{ item.unit_price|floatformat:2 }}</td>
+                <td>R$ {{ item.discount|floatformat:2 }}</td>
+                <td>R$ {{ item.total_amount|floatformat:2 }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="has-text-right">
+          <strong>Total: R$ {{ quote.total_amount|floatformat:2 }}</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

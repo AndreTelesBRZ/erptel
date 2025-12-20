@@ -1,0 +1,94 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Financeiro{% endblock %}
+{% block hero_title %}Financeiro{% endblock %}
+{% block hero_subtitle %}Fluxo de contas a pagar e a receber{% endblock %}
+{% block hero_meta %}
+  <div class="quick-stats">
+    <span class="chip"><span class="icon" data-lucide="wallet"></span> Saldo R$ {{ total_amount|floatformat:2 }}</span>
+    <span class="chip"><span class="icon" data-lucide="list-checks"></span> {{ entries|length }} lançamentos</span>
+  </div>
+{% endblock %}
+{% block hero_actions %}
+  <a class="button is-primary" href="javascript:void(0)" disabled>Novo lançamento (em breve)</a>
+{% endblock %}
+
+{% block content %}
+  <form method="get" class="surface filters-panel" data-aos="fade-up">
+    <div class="filters-grid">
+      <div>
+        <label class="small text-muted" for="type-filter">Tipo de lançamento</label>
+        <div class="field">
+          <div class="select is-fullwidth">
+            <select id="type-filter" name="type" onchange="this.form.submit()">
+              <option value="">Todos</option>
+              {% for value, label in type_choices %}
+                <option value="{{ value }}" {% if entry_type == value %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+      <div class="filter-controls">
+        <div class="field-group">
+          <div class="control">
+            <div class="select is-small">
+              <select name="paid" onchange="this.form.submit()">
+                <option value="">Todos</option>
+                <option value="open" {% if status_filter == 'open' %}selected{% endif %}>Em aberto</option>
+                <option value="closed" {% if status_filter == 'closed' %}selected{% endif %}>Liquidado</option>
+              </select>
+            </div>
+          </div>
+          <div class="control">
+            <a class="button is-secondary" href="{% url 'finance:index' %}">Limpar</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <div class="box data-card" data-aos="fade-up" data-aos-delay="60">
+    <header>
+      <div>
+        <h2 style="margin:0">Lançamentos financeiros</h2>
+        <p class="small text-muted">Resumo de contas registradas na plataforma.</p>
+      </div>
+      <div class="buttons">
+        <a class="button is-secondary" href="#" onclick="return false;">Exportar (em breve)</a>
+      </div>
+    </header>
+    <table class="table is-fullwidth is-hoverable">
+      <thead>
+        <tr>
+          <th>Título</th>
+          <th>Tipo</th>
+          <th>Categoria</th>
+          <th>Valor</th>
+          <th>Vencimento</th>
+          <th>Situação</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for entry in entries %}
+        <tr>
+          <td>{{ entry.title }}</td>
+          <td><span class="chip">{{ entry.get_entry_type_display }}</span></td>
+          <td>{{ entry.category|default:'—' }}</td>
+          <td>R$ {{ entry.amount|floatformat:2 }}</td>
+          <td>{% if entry.due_date %}{{ entry.due_date|date:"d/m/Y" }}{% else %}—{% endif %}</td>
+          <td>
+            {% if entry.paid %}
+              <span class="chip" style="background:rgba(34,197,94,0.12); color:var(--success); border-color:transparent;">Pago</span>
+            {% else %}
+              <span class="chip" style="background:rgba(248,113,113,0.12); color:var(--danger); border-color:transparent;">Em aberto</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="6">Nenhum lançamento cadastrado.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

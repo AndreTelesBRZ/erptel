@@ -1,32 +1,306 @@
 <!doctype html>
-<html lang="en">
+{% load static %}
+<html lang="pt-BR">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
     <title>{% block title %}MySite{% endblock %}</title>
+    <link rel="icon" type="image/svg+xml" href="{% static 'images/favicon.svg' %}">
+    <link rel="shortcut icon" href="{% static 'images/favicon.svg' %}">
     <link href="https://cdn.jsdelivr.net/npm/bulma@0.9.4/css/bulma.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    {# Fallback inline theme so the app stays styled even if static files are not served #}
+    <style>
+      :root {
+        --bg-page: radial-gradient(140% 140% at 0% 0%, #fef7f1 0%, #f3f7fd 40%, #f1f3f8 100%);
+        --sidebar-bg: rgba(255, 255, 255, 0.94);
+        --sidebar-border: rgba(12, 25, 54, 0.08);
+        --surface-bg: rgba(255, 255, 255, 0.96);
+        --surface-border: rgba(12, 25, 54, 0.08);
+        --surface-shadow: 0 24px 60px -40px rgba(12, 25, 54, 0.38);
+        --color-heading: #0f172a;
+        --color-text: #13213a;
+        --color-text-muted: rgba(19, 33, 58, 0.65);
+        --accent: #f97316;
+        --brand-blue: #0ea5e9;
+        --brand-blue-strong: #0284c7;
+        --radius-sm: 10px;
+        --radius-lg: 18px;
+        --grid-gap: 0.9rem;
+      }
+      body {
+        font-family: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        margin: 0;
+        background: var(--bg-page);
+        color: var(--color-text);
+      }
+      a { color: var(--color-heading); text-decoration: none; }
+      .erp-layout { display: flex; min-height: 100vh; }
+      .erp-sidebar {
+        width: 220px; background: var(--sidebar-bg); border: 1px solid var(--sidebar-border);
+        padding: 1rem; border-radius: var(--radius-lg); box-shadow: var(--surface-shadow);
+        position: sticky; top: 1rem; height: calc(100vh - 2rem); overflow-y: auto;
+      }
+      .erp-nav ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 0.35rem; }
+      .erp-nav .nav-heading { font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--color-text-muted); }
+      .erp-nav a {
+        display: flex; gap: 0.55rem; align-items: center; padding: 0.55rem 0.7rem;
+        border-radius: var(--radius-sm); transition: 160ms ease; color: var(--color-heading);
+      }
+      .erp-nav a:hover { background: linear-gradient(120deg, rgba(249,115,22,.12), rgba(14,165,233,.12)); }
+      .erp-nav a.is-active { background: linear-gradient(120deg, rgba(249,115,22,.22), rgba(14,165,233,.32)); color: #fff; }
+      .erp-main { flex: 1; padding: 1.2rem 1.8rem 2rem; }
+      .erp-topbar {
+        display: flex; align-items: center; gap: 0.8rem; padding: 0.9rem 1rem;
+        background: var(--surface-bg); border: 1px solid var(--surface-border);
+        border-radius: var(--radius-lg); box-shadow: var(--surface-shadow); margin-bottom: 1rem;
+      }
+      .erp-topbar .topbar-heading { margin: 0; font-size: 1.2rem; color: var(--color-heading); }
+      .erp-content-inner { display: flex; flex-direction: column; gap: var(--grid-gap); }
+      .erp-hero {
+        background: linear-gradient(120deg, rgba(14, 165, 233, 0.08), rgba(249, 115, 22, 0.16));
+        border: 1px solid var(--surface-border); border-radius: var(--radius-lg);
+        padding: 1rem; box-shadow: 0 16px 40px -36px rgba(249,115,22,.28);
+      }
+      .erp-hero h2 { margin: 0; color: var(--color-heading); font-weight: 700; }
+      .erp-hero p { margin: 0.25rem 0 0; color: var(--color-text-muted); }
+      .hero-actions { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .button {
+        display: inline-flex; align-items: center; justify-content: center; gap: 0.35rem;
+        border-radius: 10px; border: 1px solid transparent; padding: 0.55rem 0.9rem;
+        font-weight: 600; cursor: pointer; transition: 150ms ease; background: #fff; color: var(--color-heading);
+      }
+      .button.is-primary { background: linear-gradient(120deg, var(--accent), var(--brand-blue-strong)); color: #fff; }
+      .button.is-secondary { border-color: var(--surface-border); background: var(--surface-bg); }
+      .card, .box {
+        border: 1px solid var(--surface-border); background: var(--surface-bg);
+        border-radius: var(--radius-lg); box-shadow: var(--surface-shadow); padding: 1rem;
+      }
+      .stat-grid, .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--grid-gap); }
+      .metric-value { font-size: 2rem; font-weight: 700; color: var(--color-heading); }
+      .table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 0.95rem; }
+      .table thead th { text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.7rem; color: var(--color-text-muted); padding: 0.65rem; background: rgba(14,165,233,0.08); }
+      .table tbody td { padding: 0.7rem; border-bottom: 1px solid rgba(15, 23, 42, 0.06); }
+      .topbar-user { display: inline-flex; align-items: center; gap: 0.45rem; }
+      .user-avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #f97316, #0ea5e9); color: #fff; font-weight: 700; }
+      @media (max-width: 1024px) {
+        .erp-layout { flex-direction: column; }
+        .erp-sidebar { position: relative; height: auto; width: auto; margin-bottom: 1rem; }
+        .erp-topbar { position: sticky; top: 0; z-index: 10; }
+      }
+    </style>
+    <link rel="stylesheet" href="{% static 'css/theme.css' %}">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.css">
+    {% block extra_head %}{% endblock %}
   </head>
-  <body>
-    <section class="section">
-      <div class="container">
-        <nav class="breadcrumb" aria-label="breadcrumbs">
-          <ul>
-            <li><a href="/">Início</a></li>
-            <li><a href="/products/">Produtos</a></li>
-            <li><a href="/clients/">Clientes</a></li>
-            <li><a href="/admin/">Admin</a></li>
-          </ul>
-        </nav>
-        <div style="float: right; margin-top: -2.5rem;">
-          {% if user.is_authenticated %}
-            Logged in as {{ user.username }} | <a href="{% url 'logout' %}">Logout</a>
-          {% else %}
-            <a href="{% url 'login' %}">Login</a>
-          {% endif %}
-        </div>
+  {% with font_size=user_profile.interface_font_size|default:'' %}
+  <body class="{% block body_class %}{% endblock %}{% if font_size %} font-size-{{ font_size }}{% endif %}">
+  {% endwith %}
+    {% if user.is_authenticated %}
+      <div class="erp-layout">
+        {% include 'core/sidebar.html' %}
+        <div class="erp-main">
+          <header class="erp-topbar" role="banner">
+            <div class="topbar-left">
+              <button id="sidebar-toggle" class="topbar-quick-action" type="button" onclick="toggleSidebar()" aria-label="Alternar navegação lateral">
+                <span class="icon" data-lucide="panel-left"></span>
+              </button>
+              <div>
+                {% block topbar_title %}
+                  <h1 class="topbar-heading">Portal Operacional</h1>
+                {% endblock %}
+                {% block topbar_subtitle %}
+                {% endblock %}
+              </div>
+              {% if available_companies %}
+                <form method="post" action="{% url 'core:switch_company' %}" class="company-switch-form">
+                  {% csrf_token %}
+                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                  <div class="select is-small" style="margin-left:1rem;">
+                    <select name="company_id" onchange="this.form.submit()" aria-label="Selecionar empresa">
+                      {% for company in available_companies %}
+                        <option value="{{ company.pk }}" {% if active_company and company.pk == active_company.pk %}selected{% endif %}>{{ company.trade_name|default:company.name }}</option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </form>
+              {% endif %}
+            </div>
+            <div class="topbar-search" style="margin-left:1rem; flex: 1; max-width:520px;">
+              {% with request.resolver_match as match %}
+              <form action="{% if match and match.app_name == 'clients' %}{% url 'clients:index' %}{% elif match and match.app_name == 'sales' %}{% url 'sales:quote_list' %}{% else %}{% url 'products:index' %}{% endif %}" method="get">
+                <div class="field has-addons">
+                  <div class="control is-expanded">
+                    <input class="input" type="search" name="q" placeholder="Pesquisar (use % como curinga)" value="{{ request.GET.q|default:'' }}">
+                  </div>
+                  <div class="control"><button class="button is-secondary" type="submit">Buscar</button></div>
+                </div>
+              </form>
+              {% endwith %}
+            </div>
+            <div class="erp-topbar-right">
+              <div class="topbar-actions">
+                {% block topbar_actions %}{% endblock %}
+              </div>
+              <button
+                id="dark-toggle"
+                class="topbar-quick-action"
+                type="button"
+                onclick="toggleDarkMode('dark-toggle')"
+                title="Alternar modo escuro"
+                aria-pressed="false"
+                data-icon-sun="<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='12' cy='12' r='5'></circle><path d='M12 1v2'></path><path d='M12 21v2'></path><path d='M4.2 4.2l1.4 1.4'></path><path d='M18.4 18.4l1.4 1.4'></path><path d='M1 12h2'></path><path d='M21 12h2'></path><path d='M4.2 19.8l1.4-1.4'></path><path d='M18.4 5.6l1.4-1.4'></path></svg>"
+                data-icon-moon="<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z'></path></svg>"
+              >
+                <span class="dm-icon">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"></circle><path d="M12 1v2"></path><path d="M12 21v2"></path><path d="M4.2 4.2l1.4 1.4"></path><path d="M18.4 18.4l1.4 1.4"></path><path d="M1 12h2"></path><path d="M21 12h2"></path><path d="M4.2 19.8l1.4-1.4"></path><path d="M18.4 5.6l1.4-1.4"></path></svg>
+                </span>
+              </button>
+              <div class="topbar-user small">
+                {% with display_name=user_profile.display_name|default:user.get_full_name|default:user.username %}
+                  {% with name_source=display_name|default:user.username %}
+                    <a href="{% url 'core:settings_profile' %}" class="topbar-user-link" title="Ver configurações do perfil">
+                      {% if user_profile and user_profile.avatar %}
+                        <img src="{{ user_profile.avatar.url }}" alt="Avatar de {{ display_name }}" class="user-avatar-image">
+                      {% else %}
+                        <span class="user-avatar" aria-hidden="true">{{ name_source|first|upper }}</span>
+                      {% endif %}
+                      <span class="user-name">{{ display_name }}</span>
+                    </a>
+                  {% endwith %}
+                {% endwith %}
+                <span aria-hidden="true">•</span>
+                <form method="post" action="{% url 'logout' %}" style="display:inline;">
+                  {% csrf_token %}
+                  <button class="button is-text is-small" style="padding:0; height:auto;" type="submit">Sair</button>
+                </form>
+              </div>
+            </div>
+          </header>
+          <main class="erp-content" role="main">
+            <div class="erp-content-inner">
+              {% block hero %}
+                <section class="erp-hero" aria-labelledby="hero-heading">
+                  <div class="erp-hero-inner">
+                    <div class="hero-text">
+                      <h2 id="hero-heading">{% block hero_title %}Painel de Controle{% endblock %}</h2>
+                      <p class="small text-muted">{% block hero_subtitle %}Visão rápida das operações e relatórios{% endblock %}</p>
+                      {% block hero_meta %}
+                      {% endblock %}
+                    </div>
+                    <div class="hero-actions">
+                      {% block hero_actions %}
+                      {% endblock %}
+                    </div>
+                  </div>
+                </section>
+              {% endblock %}
 
-        {% block content %}{% endblock %}
+              {% if messages %}
+                <div class="erp-messages" role="status">
+                  {% for message in messages %}
+                    <div class="notification is-{{ message.tags|default:'info' }}">
+                      {{ message }}
+                    </div>
+                  {% endfor %}
+                </div>
+              {% endif %}
+
+          {% block content %}{% endblock %}
+        </div>
+      </main>
+    </div>
+  </div>
+{% else %}
+  <main class="auth-layout" role="main">
+    <div class="auth-layout-inner">
+      {% if messages %}
+        <div class="auth-messages" role="status">
+          {% for message in messages %}
+            <div class="notification is-{{ message.tags|default:'info' }}">
+              {{ message }}
+            </div>
+          {% endfor %}
+        </div>
+      {% endif %}
+      {% block auth_content %}{% endblock %}
+    </div>
+  </main>
+{% endif %}
+
+    <div id="app-lookup-modal" class="modal" aria-hidden="true" data-lookup-modal>
+      <div class="modal-background" data-lookup-close></div>
+      <div class="modal-card">
+        <header class="modal-card-head">
+          <p class="modal-card-title" data-lookup-title>Pesquisar</p>
+          <button class="delete" aria-label="Fechar" type="button" data-lookup-close></button>
+        </header>
+        <section class="modal-card-body">
+          <form data-lookup-form autocomplete="off">
+            <div class="field has-addons">
+              <div class="control is-expanded">
+                <input class="input" type="search" data-lookup-input placeholder="Digite para buscar (use % como curinga)">
+              </div>
+              <div class="control">
+                <button class="button is-primary" type="submit">Buscar</button>
+              </div>
+            </div>
+          </form>
+          <p class="small text-muted" data-lookup-hint>Pressione Enter para pesquisar, setas para navegar e Enter ou duplo clique para selecionar.</p>
+          <div class="table-container" data-lookup-container>
+            <table class="table is-fullwidth is-hoverable is-striped" data-lookup-table hidden>
+              <thead>
+                <tr data-lookup-head></tr>
+              </thead>
+              <tbody data-lookup-body></tbody>
+            </table>
+            <p class="help" data-lookup-feedback></p>
+          </div>
+        </section>
+        <footer class="modal-card-foot">
+          <button class="button" type="button" data-lookup-close>Cancelar</button>
+          <button class="button is-primary" type="button" data-lookup-confirm disabled>Selecionar</button>
+        </footer>
       </div>
-    </section>
+    </div>
+
+    <script src="{% static 'js/darkmode.js' %}"></script>
+    <script src="{% static 'js/image_modal.js' %}"></script>
+    <script src="{% static 'js/sidebar.js' %}"></script>
+    <script>
+      window.APP_LOOKUP_URLS = {
+        clients: "{% url 'core:lookup' 'clients' %}",
+        products: "{% url 'core:lookup' 'products' %}",
+        suppliers: "{% url 'core:lookup' 'suppliers' %}",
+        quotes: "{% url 'core:lookup' 'quotes' %}",
+        brands: "{% url 'core:lookup' 'brands' %}",
+        categories: "{% url 'core:lookup' 'categories' %}",
+        departments: "{% url 'core:lookup' 'departments' %}",
+        volumes: "{% url 'core:lookup' 'volumes' %}",
+        units: "{% url 'core:lookup' 'units' %}",
+        product_groups: "{% url 'core:lookup' 'product_groups' %}",
+        product_subgroups: "{% url 'core:lookup' 'product_subgroups' %}",
+        supplier_items: "{% url 'core:lookup' 'supplier_items' %}",
+      };
+    </script>
+    <script src="{% static 'js/lookup-modal.js' %}"></script>
+    <script defer src="https://unpkg.com/lucide@latest"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/aos@2.3.4/dist/aos.js"></script>
+    <script>
+      document.addEventListener('DOMContentLoaded', function () {
+        if (window.lucide) {
+          window.lucide.createIcons();
+        }
+        if (window.AOS) {
+          window.AOS.init({
+            once: true,
+            duration: 600,
+            easing: 'ease-out-quart'
+          });
+        }
+      });
+    </script>
+    {% block extra_js %}{% endblock %}
   </body>
 </html>

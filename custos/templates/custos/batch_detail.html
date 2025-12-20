@@ -1,0 +1,224 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Lote {{ batch.name }}{% endblock %}
+
+{% block hero_title %}{{ batch.name }}{% endblock %}
+{% block hero_subtitle %}Configure os itens deste lote e execute os cálculos automaticamente.{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <header>
+      <div>
+        <h2 style="margin:0">Configuração do lote</h2>
+        {% if batch.description %}
+          <p class="small text-muted">{{ batch.description }}</p>
+        {% endif %}
+        <div class="tags">
+          <span class="tag is-info is-light">MVA: {{ batch.mva_percent|floatformat:2 }}%</span>
+          <span class="tag is-info is-light">Carga ST: {{ batch.st_percent|floatformat:2 }}%</span>
+          <span class="tag is-info is-light">Multiplicador ST: {{ batch.st_multiplier }}</span>
+          <span class="tag is-light">IPI padrão: {{ batch.default_ipi_percent|floatformat:2 }}%</span>
+          <span class="tag is-light">Frete padrão: {{ batch.default_freight_percent|floatformat:2 }}%</span>
+        </div>
+      </div>
+      <div class="buttons">
+        <a class="button is-secondary" href="{% url 'custos:batch_list' %}">Voltar para lotes</a>
+        <a class="button is-primary" href="{% url 'custos:batch_select_items' batch.pk %}">Selecionar itens</a>
+      </div>
+    </header>
+  </div>
+
+  <div class="box data-card" data-aos="fade-up" data-aos-delay="60">
+    <form id="lookup-add-form" method="post" class="lookup-field" style="margin-bottom:1rem; display:flex; gap:0.75rem; align-items:flex-end;">
+      {% csrf_token %}
+      <input type="hidden" name="action" value="add_lookup_item">
+      <input type="hidden" name="supplier_item_id" id="lookup-supplier-item-id">
+      <input type="hidden" name="supplier_item_ids" id="lookup-supplier-item-ids">
+      <div class="field is-flex-grow-1">
+        <label class="label">Buscar item (F2)</label>
+        <div class="field has-addons">
+          <div class="control is-expanded">
+            <input id="lookup-supplier-item" class="input" type="search" placeholder="Digite para buscar (F2)" data-lookup-type="supplier_items" data-lookup-multiple="true" autocomplete="off">
+          </div>
+          <div class="control">
+            <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="supplier_items" data-lookup-target="lookup-supplier-item">Pesquisar</button>
+          </div>
+        </div>
+        <p class="help">Pressione F2 para abrir a pesquisa avançada de itens de fornecedor.</p>
+      </div>
+      <div class="field">
+        <button class="button is-primary" type="submit">Adicionar</button>
+      </div>
+    </form>
+
+    {% if total_items %}
+      <div class="notification is-light is-info" style="margin-bottom:1rem">
+        <strong>{{ total_items }}</strong> itens no lote · Soma preço compra: R$ {{ summary.total_unit|default:0|floatformat:2 }} · Soma custo reposição: R$ {{ summary.total_replacement|default:0|floatformat:2 }}
+      </div>
+    {% endif %}
+    {% if active_company %}
+      <p class="small text-muted" style="margin-bottom:0.75rem">
+        Custos confirmados serão gravados para: <strong>{{ active_company.trade_name|default:active_company.name }}</strong>.
+      </p>
+    {% else %}
+      <p class="help is-danger" style="margin-bottom:0.75rem">
+        Nenhuma empresa ativa selecionada. Use o seletor no topo para definir onde o custo será registrado.
+      </p>
+    {% endif %}
+    {% if preview_mode %}
+      <div class="notification is-warning is-light" style="margin-bottom:1rem">
+        Valores recalculados. Revise os custos exibidos e clique em <strong>Confirmar</strong> para gravar no cadastro dos itens.
+      </div>
+    {% endif %}
+    <form method="post" class="columns is-multiline" style="margin-bottom:1rem;">
+      {% csrf_token %}
+      <div class="column is-8">
+        <label class="label">Adicionar itens pelo código</label>
+        {{ add_form.codes }}
+        {% if add_form.codes.errors %}
+          <p class="help is-danger">{{ add_form.codes.errors|join:', ' }}</p>
+        {% endif %}
+      </div>
+      <div class="column is-4" style="display:flex; align-items:flex-end;">
+        <button class="button is-primary" type="submit" name="add_items" value="1">Adicionar ao lote</button>
+      </div>
+    </form>
+
+    <form method="post">
+      {% csrf_token %}
+      {{ formset.management_form }}
+      <div class="table-container">
+        <table class="table is-fullwidth is-hoverable is-compact">
+          <thead>
+            <tr>
+              <th style="width:80px">Código</th>
+              <th>Descrição</th>
+              <th style="width:80px">Unidade</th>
+              <th style="width:120px; text-align:right">Preço compra</th>
+              <th style="width:120px; text-align:right">IPI (%)</th>
+              <th style="width:120px; text-align:right">Frete (%)</th>
+              <th style="width:120px; text-align:right">IPI (R$)</th>
+              <th style="width:120px; text-align:right">Frete (R$)</th>
+              <th style="width:120px; text-align:right">S.T (R$)</th>
+              <th style="width:140px; text-align:right">Custo reposição</th>
+              <th style="width:80px; text-align:center">Remover</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% if rows %}
+              {% for row in rows %}
+                <tr>
+                  <td><code>{{ row.item.code }}</code>{{ row.form.id }}</td>
+                  <td>
+                    <strong>{{ row.item.description }}</strong>
+                    {% if row.item.supplier_item and row.item.supplier_item.supplier %}
+                      <div class="small text-muted">Fornecedor: {{ row.item.supplier_item.supplier.name }}</div>
+                    {% endif %}
+                  </td>
+                  <td>{{ row.item.unit|default:'—' }}</td>
+                  <td style="text-align:right">
+                    {{ row.form.unit_price }}
+                    {% if row.form.unit_price.errors %}
+                      <p class="help is-danger">{{ row.form.unit_price.errors|join:', ' }}</p>
+                    {% endif %}
+                  </td>
+                  <td style="text-align:right">
+                    {{ row.form.ipi_percent }}
+                    <div class="small text-muted">R$ {{ row.item.ipi_value|floatformat:2 }}</div>
+                    {% if row.form.ipi_percent.errors %}
+                      <p class="help is-danger">{{ row.form.ipi_percent.errors|join:', ' }}</p>
+                    {% endif %}
+                  </td>
+                  <td style="text-align:right">
+                    {{ row.form.freight_percent }}
+                    <div class="small text-muted">R$ {{ row.item.freight_value|floatformat:2 }}</div>
+                    {% if row.form.freight_percent.errors %}
+                      <p class="help is-danger">{{ row.form.freight_percent.errors|join:', ' }}</p>
+                    {% endif %}
+                  </td>
+                  <td style="text-align:right">R$ {{ row.item.ipi_value|floatformat:2 }}</td>
+                  <td style="text-align:right">R$ {{ row.item.freight_value|floatformat:2 }}</td>
+                  <td style="text-align:right">R$ {{ row.item.st_value|floatformat:2 }}</td>
+                  <td style="text-align:right"><strong>R$ {{ row.item.replacement_cost|floatformat:2 }}</strong></td>
+                  <td style="text-align:center">
+                    <label class="checkbox" style="margin:0">
+                      {{ row.form.DELETE }} <span class="small text-muted">Excluir</span>
+                    </label>
+                  </td>
+                </tr>
+              {% endfor %}
+            {% else %}
+              <tr>
+                <td colspan="10" class="has-text-centered text-muted">Nenhum item neste lote.</td>
+              </tr>
+            {% endif %}
+          </tbody>
+        </table>
+      </div>
+      <div class="buttons">
+        <button class="button is-light" type="submit" name="preview_items" value="1">Visualizar e calcular</button>
+        <button class="button is-primary" type="submit" name="save_items" value="1">Confirmar custos e gravar</button>
+      </div>
+    </form>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const lookupInput = document.getElementById('lookup-supplier-item');
+      const hiddenField = document.getElementById('lookup-supplier-item-id');
+      const hiddenIdsField = document.getElementById('lookup-supplier-item-ids');
+      const lookupForm = document.getElementById('lookup-add-form');
+      if (!lookupInput || !hiddenField || !lookupForm) {
+        return;
+      }
+      lookupInput.addEventListener('lookup:selected', function (event) {
+        const detail = event.detail || {};
+        let records = [];
+        if (Array.isArray(detail.records) && detail.records.length) {
+          records = detail.records;
+        } else if (detail.record) {
+          records = [detail.record];
+        }
+        if (!records.length) {
+          return;
+        }
+        const ids = records
+          .map((record) => record && record.id)
+          .filter((value) => value);
+        if (!ids.length) {
+          return;
+        }
+        hiddenField.value = ids[0] || '';
+        if (hiddenIdsField) {
+          hiddenIdsField.value = ids.join(',');
+        }
+        if (records.length === 1) {
+          lookupInput.value = records[0].label || '';
+        } else {
+          lookupInput.value = `${records.length} itens selecionados`;
+        }
+        window.setTimeout(function () {
+          lookupForm.submit();
+        }, 50);
+      });
+      lookupInput.addEventListener('input', function () {
+        if (!lookupInput.value) {
+          hiddenField.value = '';
+          if (hiddenIdsField) {
+            hiddenIdsField.value = '';
+          }
+        }
+      });
+      document.addEventListener('keydown', function (event) {
+        if (event.key === 'F2' && !event.defaultPrevented) {
+          event.preventDefault();
+          lookupInput.focus();
+          lookupInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'F2', bubbles: true }));
+        }
+      });
+    });
+  </script>
+{% endblock %}

@@ -1,0 +1,76 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Pedido {{ order.number }}{% endblock %}
+{% block hero_title %}Pedido {{ order.number }}{% endblock %}
+{% block hero_subtitle %}Detalhes do pedido de venda{% endblock %}
+
+{% block content %}
+  <div class="level">
+    <div class="level-left">
+      <div>
+        <p class="title is-4">Cliente</p>
+        <p>{{ order.client }}</p>
+        {% if order.quote %}
+          <p class="small text-muted">Origem: <a href="{% url 'sales:quote_detail' order.quote.pk %}">{{ order.quote.number }}</a></p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="level-right">
+      <div class="buttons">
+        {% if sales_permissions.manage and sales_permissions.edit %}
+          <span class="tag is-light">Somente leitura</span>
+        {% endif %}
+        <a class="button is-light" href="{% url 'sales:order_list' %}">Voltar</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="columns">
+    <div class="column is-4">
+      <div class="box">
+        <p><strong>Status:</strong> {{ order.get_status_display }}</p>
+        <p><strong>Emissão:</strong> {{ order.issue_date|date:"d/m/Y" }}</p>
+        <p><strong>Criado em:</strong> {{ order.created_at|date:"d/m/Y H:i" }}</p>
+        <p><strong>Atualizado em:</strong> {{ order.updated_at|date:"d/m/Y H:i" }}</p>
+        {% if order.payment_terms %}
+          <p><strong>Pagamento:</strong> {{ order.payment_terms }}</p>
+        {% endif %}
+        {% if order.notes %}
+          <hr>
+          <p class="small text-muted">Observações</p>
+          <p>{{ order.notes|linebreaksbr }}</p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="column">
+      <div class="box">
+        <h2 class="title is-6">Itens</h2>
+        <table class="table is-fullwidth">
+          <thead>
+            <tr>
+              <th>Descrição</th>
+              <th style="width:120px">Qtd</th>
+              <th style="width:140px">Preço</th>
+              <th style="width:120px">Desconto</th>
+              <th style="width:140px">Subtotal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in order.items.all %}
+              <tr>
+                <td>{{ item.description|default:item.product.name }}</td>
+                <td>{{ item.quantity }}</td>
+                <td>R$ {{ item.unit_price|floatformat:2 }}</td>
+                <td>R$ {{ item.discount|floatformat:2 }}</td>
+                <td>R$ {{ item.total_amount|floatformat:2 }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="has-text-right">
+          <strong>Total: R$ {{ order.total_amount|floatformat:2 }}</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}

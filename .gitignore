@@ -43,6 +43,7 @@ hypothesis/
 local_settings.py
 db.sqlite3
 media
+.env
 
 # VS Code
 # (Include workspace settings if you want them tracked. .vscode/ removed to allow tasks in repo)

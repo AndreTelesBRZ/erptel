@@ -1,0 +1,71 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Grupos de Produtos{% endblock %}
+{% block hero_title %}Grupos de Produtos{% endblock %}
+{% block hero_subtitle %}Organize os produtos por categorias de negócio{% endblock %}
+{% block hero_actions %}
+  <a class="button is-primary" href="#form-grupo">Novo grupo</a>
+{% endblock %}
+
+{% block content %}
+  <div class="grid products-layout" data-aos="fade-up">
+    <div class="box data-card">
+      <header>
+        <h2 style="margin:0">Grupos cadastrados</h2>
+        <p class="small text-muted">Relacionados aos cadastros de produtos.</p>
+      </header>
+      <table class="table is-fullwidth is-hoverable">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Grupo pai</th>
+            <th>Produtos vinculados</th>
+            <th style="width:140px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for group in groups %}
+          <tr>
+            <td>{{ group.name }}</td>
+            <td>{% if group.parent_group %}{{ group.parent_group.name }}{% else %}—{% endif %}</td>
+            <td>{{ group.products.count }}</td>
+            <td>
+              <div class="buttons are-small">
+                <a class="button is-secondary" href="{% url 'products:group_edit' group.pk %}">Editar</a>
+                <form action="{% url 'products:group_delete' group.pk %}" method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <button class="button is-danger is-light" type="submit" onclick="return confirm('Remover o grupo {{ group.name }}?')">Excluir</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="4">Nenhum grupo cadastrado.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="box data-card" id="form-grupo" data-aos="fade-up" data-aos-delay="80">
+      <h3 class="small text-muted" style="text-transform:uppercase; letter-spacing:0.18em;">
+        {% if is_edit %}Editar grupo{% else %}Novo grupo{% endif %}
+      </h3>
+      <form method="post">
+        {% csrf_token %}
+        <div class="form-field">
+          {{ form.name.label_tag }}
+          {{ form.name }}
+        </div>
+        <div class="form-field">
+          {{ form.parent_group.label_tag }}
+          {{ form.parent_group }}
+        </div>
+        <div class="form-actions">
+          <button class="button is-primary" type="submit">Salvar</button>
+          {% if is_edit %}
+            <a class="button is-secondary" href="{% url 'products:group_list' %}">Cancelar</a>
+          {% endif %}
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

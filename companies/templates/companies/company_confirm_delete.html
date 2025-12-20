@@ -1,0 +1,22 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Remover empresa{% endblock %}
+{% block hero_title %}Remover empresa{% endblock %}
+{% block hero_subtitle %}Confirme a exclusão definitiva da empresa{% endblock %}
+
+{% block content %}
+  <section class="section" style="padding-top:1.5rem;">
+    <div class="container" style="max-width:520px;">
+      <div class="card">
+        <div class="card-content">
+          <p>Tem certeza de que deseja remover a empresa <strong>{{ company }}</strong>? Esta ação é irreversível.</p>
+          <form method="post" class="buttons" style="margin-top:1.2rem;">
+            {% csrf_token %}
+            <button class="button is-danger" type="submit">Sim, remover</button>
+            <a class="button is-light" href="{% url 'companies:list' %}">Cancelar</a>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}

@@ -1,79 +1,19 @@
 from django.contrib import admin
-from .models import (
-	Product,
-	ProductGroup,
-	ProductSubGroup,
-	Supplier,
-	Brand,
-	Category,
-	Department,
-	Tag,
-	Tax,
-	Volume,
-	UnitOfMeasure,
-	ProductImage,
-)
+from .models import ProdutoSync
 
 
-@admin.register(ProductGroup)
-class ProductGroupAdmin(admin.ModelAdmin):
-	list_display = ("name",)
-	search_fields = ("name",)
+@admin.register(ProdutoSync)
+class ProdutoSyncAdmin(admin.ModelAdmin):
+    list_display = ("codigo", "descricao", "plu", "loja", "preco_normal", "estoque_disponivel")
+    search_fields = ("codigo", "plu", "descricao", "referencia", "grupo", "subgrupo")
+    list_filter = ("loja",)
+    ordering = ("codigo",)
 
+    def has_add_permission(self, request):
+        return False
 
-@admin.register(ProductSubGroup)
-class ProductSubGroupAdmin(admin.ModelAdmin):
-	list_display = ("name", "group")
-	search_fields = ("name", "group__name")
+    def has_change_permission(self, request, obj=None):
+        return False
 
-
-@admin.register(Product)
-class ProductAdmin(admin.ModelAdmin):
-	list_display = ("name", "code", "price", "stock", "product_group", "product_subgroup", "created_at")
-	search_fields = ("name", "code", "supplier", "brand")
-	list_filter = ("product_group", "product_subgroup", "brand", "status")
-
-
-@admin.register(Supplier)
-class SupplierAdmin(admin.ModelAdmin):
-	list_display = ("name", "code")
-
-
-@admin.register(Brand)
-class BrandAdmin(admin.ModelAdmin):
-	list_display = ("name",)
-
-
-@admin.register(Category)
-class CategoryAdmin(admin.ModelAdmin):
-	list_display = ("name",)
-
-
-@admin.register(Department)
-class DepartmentAdmin(admin.ModelAdmin):
-	list_display = ("name",)
-
-
-@admin.register(Tag)
-class TagAdmin(admin.ModelAdmin):
-	list_display = ("name",)
-
-
-@admin.register(Tax)
-class TaxAdmin(admin.ModelAdmin):
-	list_display = ("name", "code")
-
-
-@admin.register(Volume)
-class VolumeAdmin(admin.ModelAdmin):
-	list_display = ("description",)
-
-
-@admin.register(UnitOfMeasure)
-class UnitOfMeasureAdmin(admin.ModelAdmin):
-	list_display = ("code", "name")
-
-
-@admin.register(ProductImage)
-class ProductImageAdmin(admin.ModelAdmin):
-	list_display = ("product", "url")
+    def has_delete_permission(self, request, obj=None):
+        return False

@@ -1,0 +1,77 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Configurações • Acessos{% endblock %}
+{% block hero_title %}Configurações{% endblock %}
+{% block hero_subtitle %}Gerencie permissões e empresas vinculadas aos usuários{% endblock %}
+
+{% block content %}
+  {% include 'core/settings_nav.html' with active='access_list' %}
+
+  <div class="box data-card" data-aos="fade-up">
+    <header class="table-header">
+      <div>
+        <h2 style="margin:0">Perfis de acesso</h2>
+        <p class="small text-muted">Visualize os módulos habilitados, funções atribuídas e empresas associadas a cada usuário.</p>
+      </div>
+      <div>
+        <a class="button is-primary" href="{% url 'core:settings_access_create' %}">
+          <span class="icon" data-lucide="user-plus"></span>
+          <span>Novo usuário</span>
+        </a>
+      </div>
+    </header>
+    <table class="table is-fullwidth is-hoverable">
+      <thead>
+        <tr>
+          <th>Usuário</th>
+          <th>Empresas</th>
+          <th>Funções</th>
+          <th>Módulos</th>
+          <th style="width:120px"></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for profile in profiles %}
+          <tr>
+            <td>
+              <strong>{{ profile.user.get_full_name|default:profile.user.username }}</strong>
+              <div class="small text-muted">{{ profile.user.email }}</div>
+            </td>
+            <td>
+              {% if profile.companies.count %}
+                {{ profile.companies_names }}
+              {% else %}
+                <span class="tag is-light">Todas</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if profile.roles.count %}
+                <div class="tags">
+                  {% for role in profile.roles.all %}
+                    <span class="tag is-warning is-light">{{ role.name }}</span>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <span class="tag is-light">Sem funções</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="tags">
+                {% if profile.can_manage_products %}<span class="tag is-info is-light">Produtos</span>{% endif %}
+                {% if profile.can_manage_clients %}<span class="tag is-info is-light">Clientes</span>{% endif %}
+                {% if profile.can_manage_sales %}<span class="tag is-info is-light">Vendas</span>{% endif %}
+                {% if profile.can_manage_purchases %}<span class="tag is-info is-light">Compras</span>{% endif %}
+                {% if profile.can_manage_finance %}<span class="tag is-info is-light">Financeiro</span>{% endif %}
+              </div>
+            </td>
+            <td class="has-text-right">
+              <a class="button is-primary is-light" href="{% url 'core:settings_access_edit' profile.user.pk %}">Editar</a>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5">Nenhum usuário encontrado.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

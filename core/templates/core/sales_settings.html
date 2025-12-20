@@ -1,0 +1,46 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Configurações de Vendas{% endblock %}
+{% block hero_title %}Configurações{% endblock %}
+{% block hero_subtitle %}Defina preferências padrão para propostas comerciais{% endblock %}
+
+{% block content %}
+  {% include 'core/settings_nav.html' with active='sales' %}
+  <div class="columns" data-aos="fade-up">
+    <div class="column is-two-thirds">
+      <div class="box">
+        <h2 class="title is-5">Orçamentos e pré-vendas</h2>
+        <form method="post">
+          {% csrf_token %}
+          <div class="field">
+            {{ form.default_quote_validity_days.label_tag }}
+            <div class="control">
+              {{ form.default_quote_validity_days }}
+            </div>
+            {% if form.default_quote_validity_days.errors %}
+              <p class="help is-danger">{{ form.default_quote_validity_days.errors.0 }}</p>
+            {% else %}
+              <p class="help">Número de dias adicionados à data atual para definir a validade padrão dos orçamentos.</p>
+            {% endif %}
+          </div>
+          <div class="field is-grouped is-justify-content-flex-end">
+            <div class="control">
+              <button class="button is-primary" type="submit">Salvar configurações</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="column">
+      <div class="box">
+        <h3 class="title is-6">Como essa configuração é usada?</h3>
+        <ul class="small text-muted" style="list-style:disc; padding-left:1.1rem;">
+          <li>Ao criar um novo orçamento, o campo “Válido até” recebe automaticamente o número de dias informado.</li>
+          <li>O vendedor conectado é sugerido como responsável pelo orçamento, mas pode ser alterado antes de salvar.</li>
+          <li>Você pode deixar o valor em zero para não preencher a data de validade automaticamente.</li>
+        </ul>
+        <p class="small text-muted" style="margin-top:0.75rem;">Última atualização em {{ config.updated_at|default:'—' }}{% if config.updated_by %} por {{ config.updated_by.get_full_name|default:config.updated_by.username }}{% endif %}.</p>
+      </div>
+    </div>
+  </div>
+{% endblock %}

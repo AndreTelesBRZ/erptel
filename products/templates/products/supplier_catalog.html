@@ -1,0 +1,119 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Tabela do fornecedor · {{ supplier.name }}{% endblock %}
+{% block hero_title %}Catálogo do fornecedor{% endblock %}
+{% block hero_subtitle %}{{ supplier.name }} · Consulta da tabela de preços (somente leitura){% endblock %}
+{% block hero_actions %}
+  <a class="button is-light" href="{% url 'products:supplier_list' %}">Lista de fornecedores</a>
+  <span class="tag is-light">Somente leitura</span>
+{% endblock %}
+
+{% block content %}
+  <div class="grid products-layout" data-aos="fade-up">
+    <div class="box data-card">
+      <h2 class="title is-6">Importar tabela</h2>
+      <form method="post" enctype="multipart/form-data">
+        {% csrf_token %}
+        <input type="hidden" name="action" value="import">
+        <div class="field">
+          {{ import_form.file.label_tag }}
+          <div class="control">
+            {{ import_form.file }}
+          </div>
+          <p class="small text-muted">Use CSV separado por ponto e vírgula. Colunas esperadas: Código, Descrição, Unidade, Qtd. etiq., Qtd. por embalagem, Valor unitário, IPI (%), Frete (%), ST (%), Custo reposição, Início vigência, Fim vigência.</p>
+          {% if import_form.file.errors %}
+            <p class="help is-danger">{{ import_form.file.errors.0 }}</p>
+          {% endif %}
+        </div>
+        <div class="field">
+          <button class="button is-warning" type="submit">Importar tabela</button>
+        </div>
+      </form>
+    </div>
+    <div class="box data-card" data-aos="fade-up" data-aos-delay="80">
+      <h2 class="title is-6">Adicionar item</h2>
+      <form method="post">
+        {% csrf_token %}
+        <div class="columns is-multiline">
+          <input type="hidden" name="action" value="add">
+          {% for field in add_form %}
+            <div class="column is-one-third">
+              <div class="field">
+                {{ field.label_tag }}
+                <div class="control">
+                  {{ field }}
+                </div>
+                {% if field.errors %}
+                  <p class="help is-danger">{{ field.errors.0 }}</p>
+                {% endif %}
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+        <div class="field">
+          <button class="button is-primary" type="submit">Adicionar item</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div class="box data-card" data-aos="fade-up" data-aos-delay="120">
+    <h2 class="title is-6">Tabela de produtos</h2>
+    <div class="table-container">
+      <table class="table is-fullwidth is-hoverable is-compact">
+        <thead>
+          <tr>
+            <th>Código</th>
+            <th>Descrição</th>
+            <th>Produto</th>
+            <th>Unid.</th>
+            <th>Qtd. etiq.</th>
+            <th>Qtd. embalagem</th>
+            <th>Valor unitário</th>
+            <th>IPI (%)</th>
+            <th>Frete (%)</th>
+            <th>ST (%)</th>
+            <th>Custo reposição</th>
+            <th>Vigência</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for item in items %}
+            <tr>
+              <td>{{ item.code }}</td>
+              <td>{{ item.description }}</td>
+              <td>
+                {% if item.product %}
+                  <a href="{% url 'products:detail' item.product.pk %}">{{ item.product.name }}</a>
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+              <td>{{ item.unit|default:'—' }}</td>
+              <td>{{ item.quantity|default:'—' }}</td>
+              <td>{{ item.pack_quantity|default:'—' }}</td>
+              <td>{{ item.unit_price|floatformat:4 }}</td>
+              <td>{{ item.ipi_percent|default:'—' }}</td>
+              <td>{{ item.freight_percent|default:'—' }}</td>
+              <td>{{ item.st_percent|default:'—' }}</td>
+              <td>{{ item.replacement_cost|default:'—' }}</td>
+              <td>
+                <span class="small text-muted">
+                  {{ item.valid_from|date:"d/m/Y" }} {% if item.valid_until %}→ {{ item.valid_until|date:"d/m/Y" }}{% else %}→ —{% endif %}
+                </span>
+              </td>
+              <td class="has-text-right">
+                <div class="buttons are-small is-right">
+                  <span class="tag is-light">Somente leitura</span>
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="12">Nenhum item cadastrado para este fornecedor.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}

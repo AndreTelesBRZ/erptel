@@ -1,0 +1,59 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Pedidos API{% endblock %}
+{% block hero_title %}Pedidos recebidos via API{% endblock %}
+{% block hero_subtitle %}Pedidos criados pelo app/vendedores externos (FastAPI){% endblock %}
+
+{% block content %}
+  <div class="level">
+    <div class="level-left">
+      <h1 class="title" style="margin:0">Pedidos API</h1>
+    </div>
+  </div>
+
+  <form method="get" class="box" style="padding:0.9rem 1rem;">
+    <div class="columns is-vcentered is-mobile">
+      <div class="column is-two-thirds">
+        <div class="field has-addons is-fullwidth">
+          <div class="control is-expanded has-icons-left">
+            <input class="input" type="search" name="q" placeholder="Buscar por cliente, código ou ID" value="{{ query }}">
+            <span class="icon is-left">🔎</span>
+          </div>
+          <div class="control"><button class="button is-primary" type="submit">Filtrar</button></div>
+          <div class="control"><a class="button" href="{% url 'sales:api_order_list' %}">Limpar</a></div>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <table class="table is-fullwidth is-hoverable">
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Cliente</th>
+        <th>Data do pedido</th>
+        <th>Recebido em</th>
+        <th>Status</th>
+        <th>Pagamento</th>
+        <th>Frete</th>
+        <th class="has-text-right">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for order in orders %}
+      <tr>
+        <td><strong><a href="{% url 'sales:api_order_detail' order.pk %}">#{{ order.pk }}</a></strong></td>
+        <td>{{ order.cliente }}</td>
+        <td>{{ order.data_criacao|date:"d/m/Y H:i" }}</td>
+        <td>{{ order.data_recebimento|date:"d/m/Y H:i" }}</td>
+        <td>{{ order.get_status_display }}</td>
+        <td>{{ order.get_pagamento_status_display }}</td>
+        <td>{{ order.get_frete_modalidade_display }}</td>
+        <td class="has-text-right">R$ {{ order.total|floatformat:2 }}</td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="8">Nenhum pedido encontrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

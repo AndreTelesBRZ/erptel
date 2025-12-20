@@ -1,0 +1,69 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Novo lote de custos{% endblock %}
+
+{% block hero_title %}Criar lote de custos{% endblock %}
+{% block hero_subtitle %}Defina os parâmetros padrão que serão aplicados aos itens deste lote.{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <form method="post">
+      {% csrf_token %}
+      <div class="columns is-multiline">
+        <div class="column is-6">
+          <label class="label">Nome</label>
+          {{ form.name }}
+          {% if form.name.errors %}
+            <p class="help is-danger">{{ form.name.errors|join:', ' }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-6">
+          <label class="label">Descrição</label>
+          {{ form.description }}
+          {% if form.description.errors %}
+            <p class="help is-danger">{{ form.description.errors|join:', ' }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-3">
+          <label class="label">IPI padrão (%)</label>
+          {{ form.default_ipi_percent }}
+          {% if form.default_ipi_percent.errors %}
+            <p class="help is-danger">{{ form.default_ipi_percent.errors|join:', ' }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-3">
+          <label class="label">Frete padrão (%)</label>
+          {{ form.default_freight_percent }}
+          {% if form.default_freight_percent.errors %}
+            <p class="help is-danger">{{ form.default_freight_percent.errors|join:', ' }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-3">
+          <label class="label">MVA (%)</label>
+          {{ form.mva_percent }}
+          {% if form.mva_percent.errors %}
+            <p class="help is-danger">{{ form.mva_percent.errors|join:', ' }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-3">
+          <label class="label">Carga ST (%)</label>
+          {{ form.st_percent }}
+          {% if form.st_percent.errors %}
+            <p class="help is-danger">{{ form.st_percent.errors|join:', ' }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-3">
+          <label class="label">Multiplicador ST</label>
+          {{ form.st_multiplier }}
+          {% if form.st_multiplier.errors %}
+            <p class="help is-danger">{{ form.st_multiplier.errors|join:', ' }}</p>
+          {% endif %}
+        </div>
+      </div>
+      <div class="buttons">
+        <button class="button is-primary" type="submit">Salvar lote</button>
+        <a class="button is-secondary" href="{% url 'custos:batch_list' %}">Cancelar</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

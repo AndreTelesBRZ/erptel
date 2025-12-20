@@ -1,0 +1,101 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Configurações • Acessos{% endblock %}
+{% block hero_title %}Configurações{% endblock %}
+{% block hero_subtitle %}Defina as permissões e empresas vinculadas{% endblock %}
+
+{% block content %}
+  {% include 'core/settings_nav.html' with active='access_edit' %}
+
+  <div class="columns" data-aos="fade-up">
+    <div class="column is-two-thirds">
+      <div class="box">
+        <h2 class="title is-5" style="margin-bottom:1.1rem;">{{ profile.user.get_full_name|default:profile.user.username }}</h2>
+        <form method="post">
+          {% csrf_token %}
+          {% if form.non_field_errors %}
+            <div class="notification is-danger is-light">
+              {% for error in form.non_field_errors %}
+                <p>{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+          <div class="field">
+            {{ form.roles.label_tag }}
+            <div class="control">
+              {{ form.roles }}
+            </div>
+            {% if form.roles.help_text %}
+              <p class="help">{{ form.roles.help_text }}</p>
+            {% endif %}
+            {% if form.roles.errors %}
+              <p class="help is-danger">{{ form.roles.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="field-group" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:0.6rem; margin-top:1rem;">
+            {% for field in module_fields %}
+              <label class="checkbox" style="padding:0.55rem 0.75rem; border:1px solid rgba(20,57,99,0.12); border-radius:var(--radius-sm); background:rgba(20,57,99,0.06);">
+                {{ field }} <span>{{ field.label }}</span>
+              </label>
+            {% endfor %}
+          </div>
+          <div class="field" style="margin-top:1.2rem;">
+            <p class="small text-muted" style="text-transform:uppercase; letter-spacing:0.12em; margin-bottom:0.5rem;">Permissões detalhadas de vendas</p>
+            <div class="field-group" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:0.6rem;">
+              {% for field in sales_permission_fields %}
+                <label class="checkbox" style="padding:0.55rem 0.75rem; border:1px solid rgba(20,57,99,0.12); border-radius:var(--radius-sm); background:rgba(20,57,99,0.06);">
+                  {{ field }} <span>{{ field.label }}</span>
+                </label>
+              {% endfor %}
+            </div>
+          </div>
+          <div class="field" style="margin-top:1.2rem;">
+            {{ form.companies.label_tag }}
+            <div class="control">
+              {{ form.companies }}
+            </div>
+            {% if form.companies.errors %}
+              <p class="help is-danger">{{ form.companies.errors.0 }}</p>
+            {% else %}
+              <p class="help">Selecione a(s) empresa(s) visíveis para o usuário. Deixe vazio para liberar todas.</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.notes.label_tag }}
+            <div class="control">
+              {{ form.notes }}
+            </div>
+            {% if form.notes.errors %}
+              <p class="help is-danger">{{ form.notes.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="field is-grouped is-justify-content-flex-end">
+            <div class="control">
+              <a class="button" href="{% url 'core:settings_access' %}">Cancelar</a>
+            </div>
+            <div class="control">
+              <button class="button is-primary" type="submit">Salvar alterações</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="column">
+      <div class="box">
+        <h3 class="title is-6">Resumo atual</h3>
+        <ul class="small text-muted" style="list-style:none;padding:0; margin:0; display:grid; gap:0.4rem;">
+          <li><strong>Email:</strong> {{ profile.user.email|default:'—' }}</li>
+          <li><strong>Funções:</strong>
+            {% if profile.roles.count %}
+              {{ profile.roles_names }}
+            {% else %}
+              Sem funções
+            {% endif %}
+          </li>
+          <li><strong>Última atualização:</strong> {{ profile.updated_at }}</li>
+          <li><strong>Atualizado por:</strong> {{ profile.updated_by|default:'—' }}</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+{% endblock %}

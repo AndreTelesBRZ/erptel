@@ -1,0 +1,173 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Lote de reajuste #{{ batch.pk }}{% endblock %}
+{% block hero_title %}Lote de reajuste #{{ batch.pk }}{% endblock %}
+{% block hero_subtitle %}Regra: {{ batch.get_rule_type_display }} • Status: {{ batch.get_status_display }}{% endblock %}
+
+{% block content %}
+  <div class="grid" data-aos="fade-up">
+    <div class="box data-card">
+      <h2 class="title is-5">Resumo</h2>
+      <p><strong>Criado por:</strong> {{ batch.created_by|default:'—' }}</p>
+      <p><strong>Data:</strong> {{ batch.created_at }}</p>
+      <p><strong>Aguardando revisão:</strong> {{ pending_count }}</p>
+      <p><strong>Aprovados:</strong> {{ approved_count }}</p>
+      <p><strong>Rejeitados:</strong> {{ rejected_count }}</p>
+      <p><strong>Ignorados:</strong> {{ skipped_count }}</p>
+      {% if batch.notes %}
+        <hr>
+        <p class="small text-muted">Observações</p>
+        <p>{{ batch.notes|linebreaksbr }}</p>
+      {% endif %}
+      <hr>
+      <div class="buttons">
+        <a class="button is-light" href="{% url 'products:index' %}">Voltar para produtos</a>
+        <a class="button is-warning is-light" href="{% url 'products:price_adjustment_history' %}">Histórico de preços</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="box data-card" data-aos="fade-up" data-aos-delay="60">
+    <h2 class="title is-6">Itens do lote</h2>
+    <form method="post">
+      {% csrf_token %}
+      <div class="level is-mobile">
+        <div class="level-left">
+          <div class="field has-addons">
+            <div class="control">
+              <div class="select is-small">
+                <select name="bulk_status">
+                  <option value="">Ação em lote…</option>
+                  <option value="approved">Aprovar selecionados</option>
+                  <option value="rejected">Rejeitar selecionados</option>
+                  <option value="pending">Marcar como pendente</option>
+                </select>
+              </div>
+            </div>
+            <div class="control">
+              <button class="button is-small is-warning" type="submit" name="bulk_apply" value="1">Aplicar aos selecionados</button>
+            </div>
+          </div>
+        </div>
+        <div class="level-right">
+          <label class="checkbox small">
+            <input type="checkbox" class="js-select-all">
+            Selecionar todos
+          </label>
+        </div>
+      </div>
+      <div class="table-container">
+        <table class="table is-fullwidth is-hoverable">
+          <thead>
+            <tr>
+              <th>
+                <input type="checkbox" class="js-select-all">
+              </th>
+              <th>Produto</th>
+              <th>Preço atual</th>
+              <th>Novo preço</th>
+              <th>Custo</th>
+              <th>Margem atual (%)</th>
+              <th>Margem sugerida (%)</th>
+              <th>Status</th>
+              <th>Mensagem</th>
+              <th>Ação</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for item in items %}
+            <tr>
+              <td>
+                <input type="checkbox" name="selected_items" value="{{ item.pk }}" class="js-item-checkbox">
+              </td>
+              <td>
+                <strong>{{ item.product.name }}</strong><br>
+                <span class="small text-muted">Código: {{ item.product.code|default:'—' }}</span>
+              </td>
+              <td>{% if item.old_price is not None %}{{ item.old_price|floatformat:2 }}{% else %}—{% endif %}</td>
+                <td>{% if item.new_price %}{{ item.new_price|floatformat:2 }}{% else %}—{% endif %}</td>
+                <td>{% if item.cost_value is not None %}{{ item.cost_value|floatformat:2 }}{% else %}—{% endif %}</td>
+                <td>{% if item.old_margin_percent is not None %}{{ item.old_margin_percent|floatformat:2 }}{% else %}—{% endif %}</td>
+                <td>{% if item.new_margin_percent is not None %}{{ item.new_margin_percent|floatformat:2 }}{% else %}—{% endif %}</td>
+                <td>
+                  {% if item.status == 'pending' %}
+                    <span class="tag is-info is-light">Pendente</span>
+                  {% elif item.status == 'approved' %}
+                    <span class="tag is-success is-light">Aprovado</span>
+                  {% elif item.status == 'rejected' %}
+                    <span class="tag is-danger is-light">Rejeitado</span>
+                  {% else %}
+                    <span class="tag is-warning is-light">Ignorado</span>
+                  {% endif %}
+                </td>
+                <td>{{ item.message|default:'—' }}</td>
+                <td>
+                  <div class="select is-small">
+                    <select name="status_{{ item.pk }}">
+                      <option value="pending" {% if item.status == 'pending' %}selected{% endif %}>Pendente</option>
+                      <option value="approved" {% if item.status == 'approved' %}selected{% endif %} {% if not item.new_price %}disabled{% endif %}>Aprovar</option>
+                      <option value="rejected" {% if item.status == 'rejected' %}selected{% endif %}>Rejeitar</option>
+                    </select>
+                  </div>
+                  {% if not item.new_price %}
+                    <p class="small text-muted">Sem novo preço calculado.</p>
+                  {% endif %}
+                </td>
+              </tr>
+              {% empty %}
+              <tr><td colspan="10">Nenhum item registrado.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="field is-grouped is-grouped-right">
+        <div class="control">
+          <button class="button is-primary" type="submit">Salvar decisões</button>
+        </div>
+      </div>
+    </form>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const masterCheckboxes = Array.from(document.querySelectorAll('.js-select-all'));
+      const itemCheckboxes = Array.from(document.querySelectorAll('.js-item-checkbox'));
+
+      function syncMasters(checked) {
+        masterCheckboxes.forEach(cb => {
+          cb.checked = checked;
+          cb.indeterminate = false;
+        });
+      }
+
+      masterCheckboxes.forEach(master => {
+        master.addEventListener('change', () => {
+          itemCheckboxes.forEach(item => {
+            item.checked = master.checked;
+          });
+          syncMasters(master.checked);
+        });
+      });
+
+      itemCheckboxes.forEach(item => {
+        item.addEventListener('change', () => {
+          const allChecked = itemCheckboxes.length > 0 && itemCheckboxes.every(i => i.checked);
+          const noneChecked = itemCheckboxes.every(i => !i.checked);
+          if (allChecked) {
+            syncMasters(true);
+          } else if (noneChecked) {
+            syncMasters(false);
+          } else {
+            masterCheckboxes.forEach(cb => {
+              cb.checked = false;
+              cb.indeterminate = true;
+            });
+          }
+        });
+      });
+    });
+  </script>
+{% endblock %}

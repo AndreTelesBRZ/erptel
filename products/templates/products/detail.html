@@ -2,9 +2,175 @@
 
 {% block title %}Detalhe do Produto{% endblock %}
 
+{% block hero_title %}Produto{% endblock %}
+{% block hero_subtitle %}Ficha do produto e ações rápidas{% endblock %}
+{% block hero_meta %}
+  <div class="quick-stats">
+    <span class="chip"><span class="icon" data-lucide="barcode"></span> {{ product.code|default:'Sem código' }}</span>
+    <span class="chip"><span class="icon" data-lucide="hash"></span> {% firstof product.reference product.supplier_code 'Sem referência' %}</span>
+    {% if plu_code %}
+      <span class="chip"><span class="icon" data-lucide="tag"></span> PLU {{ plu_code }}</span>
+    {% endif %}
+    <span class="chip {% if not product.is_lifecycle_active %}is-danger{% endif %}">
+      <span class="icon" data-lucide="activity"></span> {{ product.lifecycle_status_display }}
+    </span>
+  </div>
+{% endblock %}
+{% block hero_actions %}
+  <span class="tag is-light">Somente leitura</span>
+  <a class="button is-secondary" href="{% url 'products:index' %}">Voltar</a>
+{% endblock %}
+
 {% block content %}
-  <h1 class="title">{{ product.name }}</h1>
-  <p><strong>Preço:</strong> {{ product.price }}</p>
-  <p>{{ product.description }}</p>
-  <p><a class="button" href="{% url 'products:update' product.pk %}">Editar</a></p>
+  <div class="grid products-layout" data-aos="fade-up">
+    <div class="box data-card">
+      <header style="display:flex; justify-content:space-between; align-items:flex-start; gap:1rem;">
+        <div>
+          <h2 style="margin:0">{{ product.name }}</h2>
+          <p class="small text-muted">Criado em {{ product.created_at }}</p>
+        </div>
+        <div class="buttons"></div>
+      </header>
+      <div class="grid" style="grid-template-columns: minmax(0, 1fr) minmax(220px, 320px); gap:1.4rem; margin-top:1.4rem;">
+        <div>
+          <p class="small text-muted">Descrição</p>
+          <p>{{ product.description|default:'—' }}</p>
+          <div class="grid" style="grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap:0.9rem; margin-top:1.2rem;">
+            <div class="surface" style="padding:0.8rem;">
+              <p class="small text-muted">Unidade</p>
+              <strong>{{ product.unit|default:'—' }}</strong>
+            </div>
+            <div class="surface" style="padding:0.8rem;">
+              <p class="small text-muted">Venda fracionada</p>
+              <strong>{{ product.allow_fractional_sale|yesno:"Sim,Não" }}</strong>
+            </div>
+            <div class="surface" style="padding:0.8rem;">
+              <p class="small text-muted">GTIN</p>
+              <strong>{{ product.gtin|default:'—' }}</strong>
+            </div>
+          </div>
+        </div>
+        <div>
+          <table class="table is-fullwidth is-compact">
+            <tbody>
+              <tr><th>Código</th><td>{{ product.code|default:'—' }}</td></tr>
+              <tr><th>Referência</th><td>{% firstof product.reference product.supplier_code '—' %}</td></tr>
+              <tr><th>PLU</th><td>{{ plu_code|default:'—' }}</td></tr>
+              <tr><th>Início de linha</th><td>{{ product.lifecycle_start_date|date:"d/m/Y"|default:'—' }}</td></tr>
+              <tr><th>Fim de linha</th><td>{{ product.lifecycle_end_date|date:"d/m/Y"|default:'—' }}</td></tr>
+              <tr><th>Status</th><td>{% if product.is_lifecycle_active %}<span class="tag is-success is-light">Ativo</span>{% else %}<span class="tag is-danger is-light">Fora de linha</span>{% endif %}</td></tr>
+              <tr><th>Fornecedor</th><td>{{ product.supplier|default:'—' }}</td></tr>
+              <tr><th>Categoria</th><td>{{ product.category|default:'—' }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% if product.images.all %}
+      <div style="margin-top:1.8rem;">
+        <p class="small text-muted">Imagens</p>
+        <div class="thumbnail-grid">
+          {% for img in product.images.all %}
+            {% if img.image %}
+              <div class="thumbnail"><img src="{{ img.image.url }}" alt=""></div>
+            {% elif img.url %}
+              <div class="thumbnail"><img src="{{ img.url }}" alt=""></div>
+            {% endif %}
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+      <div style="margin-top:1.8rem;">
+        <h3 class="small text-muted" style="text-transform:uppercase; letter-spacing:0.18em;">Parâmetros de precificação</h3>
+        <table class="table is-fullwidth is-compact">
+          <tbody>
+            <tr><th>Custo base</th><td>{{ product.pricing_base_cost|default:'—' }}</td></tr>
+            <tr><th>Despesas variáveis (%)</th><td>{{ product.pricing_variable_expense_percent|default:'—' }}</td></tr>
+            <tr><th>Despesas fixas (%)</th><td>{{ product.pricing_fixed_expense_percent|default:'—' }}</td></tr>
+            <tr><th>Tributos (%)</th><td>{{ product.pricing_tax_percent|default:'—' }}</td></tr>
+            <tr><th>Margem desejada (%)</th><td>{{ product.pricing_desired_margin_percent|default:'—' }}</td></tr>
+            <tr><th>Markup calculado</th><td>{{ product.pricing_markup_factor|default:'—' }}</td></tr>
+            <tr><th>Preço sugerido</th><td>{{ product.pricing_suggested_price|default:'—' }}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="box data-card" data-aos="fade-up" data-aos-delay="120">
+      <h3 class="small text-muted" style="text-transform:uppercase; letter-spacing:0.18em;">Resumo</h3>
+      <ul class="small text-muted" style="list-style:none; padding:0; margin:0; display:grid; gap:0.6rem;">
+        <li><strong>Departamento:</strong> {{ product.department|default:'—' }}</li>
+        <li><strong>Marca:</strong> {% firstof product.brand product.brand_obj.name '—' %}</li>
+        <li><strong>Localização:</strong> {{ product.location|default:'—' }}</li>
+        <li><strong>Itens por caixa:</strong> {{ product.items_per_box|default:'—' }}</li>
+        <li>
+          <strong>Empresas:</strong>
+          {% if product.companies.all %}
+            <div class="chip-group">
+              {% for company in product.companies.all %}
+                <span class="chip">{{ company.code }} - {{ company.trade_name|default:company.name }}</span>
+              {% endfor %}
+            </div>
+          {% else %}
+            — 
+          {% endif %}
+        </li>
+      </ul>
+      <hr>
+      <div class="buttons is-flex is-flex-direction-column">
+          <span class="tag is-light">Somente leitura</span>
+        <a class="button is-secondary" href="{% url 'products:index' %}">Voltar à lista</a>
+      </div>
+    </div>
+  </div>
+
+  <section class="box data-card" data-aos="fade-up" data-aos-delay="100">
+    <header>
+      <h2>Consulta de estoque e preço por empresa</h2>
+      <p class="small text-muted">Ative uma das empresas abaixo para acessar os relatórios específicos de estoque e formação de preço.</p>
+    </header>
+    {% if company_options %}
+      <div class="company-switch-grid">
+        {% for company in company_options %}
+          <form method="post" action="{% url 'core:switch_company' %}" class="company-switch-card">
+            {% csrf_token %}
+            <input type="hidden" name="company_id" value="{{ company.pk }}">
+            <input type="hidden" name="next" value="{{ request.get_full_path }}">
+            <h3>{{ company.trade_name|default:company.name }}</h3>
+            <p class="small text-muted">Código: {{ company.code }}</p>
+            {% if active_company and company.pk == active_company.pk %}
+              <button class="button is-small is-primary" type="submit" disabled>Empresa ativa</button>
+            {% else %}
+              <button class="button is-small is-secondary" type="submit">Ativar empresa</button>
+            {% endif %}
+          </form>
+        {% endfor %}
+      </div>
+      <p class="small text-muted" style="margin-top:1rem;">Com a empresa ativa você pode consultar estoque e preço em <strong>Operações → Estoque</strong> ou nos relatórios de vendas.</p>
+    {% else %}
+      <p class="small text-muted">Nenhuma empresa vinculada a este produto ou sem permissão de acesso.</p>
+    {% endif %}
+  </section>
+{% endblock %}
+{% block extra_head %}
+  {{ block.super }}
+  <style>
+    .company-switch-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit,minmax(220px,1fr));
+      gap: 1rem;
+      margin-top: 1rem;
+    }
+    .company-switch-card {
+      padding: 1rem;
+      border: 1px dashed rgba(37,99,235,0.35);
+      border-radius: 12px;
+      background: var(--surface-color, #fff);
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+    .company-switch-card h3 {
+      margin: 0;
+      font-size: 1.05rem;
+    }
+  </style>
 {% endblock %}

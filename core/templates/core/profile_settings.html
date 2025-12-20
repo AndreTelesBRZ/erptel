@@ -1,0 +1,133 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Configurações • Perfil{% endblock %}
+{% block hero_title %}Configurações do Perfil{% endblock %}
+{% block hero_subtitle %}Atualize suas informações pessoais e preferências de interface{% endblock %}
+
+{% block content %}
+  {% include 'core/settings_nav.html' with active='profile' %}
+
+  <div class="columns" data-aos="fade-up">
+    <div class="column is-two-thirds">
+      <div class="box profile-settings-box">
+        <h2 class="title is-5">Informações do Perfil</h2>
+        <form method="post" enctype="multipart/form-data">
+          {% csrf_token %}
+          {% if user_form.non_field_errors %}
+            <div class="notification is-danger is-light">
+              {% for error in user_form.non_field_errors %}
+                <p>{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+          {% if preferences_form.non_field_errors %}
+            <div class="notification is-danger is-light">
+              {% for error in preferences_form.non_field_errors %}
+                <p>{{ error }}</p>
+              {% endfor %}
+            </div>
+          {% endif %}
+
+          <div class="profile-avatar-field">
+            <span class="label">{{ preferences_form.avatar.label }}</span>
+            <div class="profile-avatar-wrapper">
+              {% if profile.avatar %}
+                <img src="{{ profile.avatar.url }}" alt="Foto do perfil" class="profile-avatar-preview">
+              {% else %}
+                <div class="profile-avatar-placeholder">
+                  {{ request.user.get_full_name|default:request.user.username|first|upper }}
+                </div>
+              {% endif %}
+              <div class="profile-avatar-actions">
+                <label class="button is-light is-small" for="{{ preferences_form.avatar.id_for_label }}">Alterar foto</label>
+                {{ preferences_form.avatar }}
+                {% if profile.avatar %}
+                  <label class="checkbox remove-avatar">
+                    {{ preferences_form.remove_avatar }} {{ preferences_form.remove_avatar.label }}
+                  </label>
+                  {% if preferences_form.remove_avatar.errors %}
+                    <p class="help is-danger">{{ preferences_form.remove_avatar.errors.0 }}</p>
+                  {% endif %}
+                {% endif %}
+                {% if preferences_form.avatar.errors %}
+                  <p class="help is-danger">
+                    {{ preferences_form.avatar.errors.0 }}
+                  </p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            {{ user_form.full_name.label_tag }}
+            <div class="control">
+              {{ user_form.full_name }}
+            </div>
+            {% if user_form.full_name.errors %}
+              <p class="help is-danger">{{ user_form.full_name.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <div class="field">
+            {{ preferences_form.display_name.label_tag }}
+            <div class="control">
+              {{ preferences_form.display_name }}
+            </div>
+            {% if preferences_form.display_name.errors %}
+              <p class="help is-danger">{{ preferences_form.display_name.errors.0 }}</p>
+            {% else %}
+              <p class="help">Nome que aparecerá nos principais painéis e listagens.</p>
+            {% endif %}
+          </div>
+
+          <div class="field">
+            {{ user_form.email.label_tag }}
+            <div class="control">
+              {{ user_form.email }}
+            </div>
+            {% if user_form.email.errors %}
+              <p class="help is-danger">{{ user_form.email.errors.0 }}</p>
+            {% endif %}
+          </div>
+
+          <hr class="profile-settings-separator">
+
+          <section aria-labelledby="interface-title" class="interface-settings">
+            <h3 id="interface-title" class="title is-6">Interface</h3>
+            <p class="small text-muted">Personalize a aparência do seu painel.</p>
+            <div class="field">
+              {{ preferences_form.interface_font_size.label_tag }}
+              <div class="control">
+                <div class="select is-fullwidth">
+                  {{ preferences_form.interface_font_size }}
+                </div>
+              </div>
+              {% if preferences_form.interface_font_size.errors %}
+                <p class="help is-danger">{{ preferences_form.interface_font_size.errors.0 }}</p>
+              {% else %}
+                <p class="help">Ajuste o tamanho do texto de acordo com a sua preferência.</p>
+              {% endif %}
+            </div>
+          </section>
+
+          <div class="field is-grouped is-justify-content-flex-end" style="margin-top:1.5rem;">
+            <div class="control">
+              <button class="button is-primary" type="submit">Atualizar o Perfil</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="column">
+      <div class="box profile-summary-box">
+        <h3 class="title is-6">Resumo</h3>
+        <ul class="small text-muted profile-summary-list">
+          <li><strong>Nome:</strong> {{ request.user.get_full_name|default:request.user.username }}</li>
+          <li><strong>Nome para exibição:</strong> {{ profile.display_name|default:'—' }}</li>
+          <li><strong>E-mail:</strong> {{ request.user.email|default:'—' }}</li>
+          <li><strong>Atualizado em:</strong> {{ profile.updated_at }}</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+{% endblock %}

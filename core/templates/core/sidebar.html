@@ -1,0 +1,142 @@
+<aside class="erp-sidebar" role="navigation" aria-label="Menu principal">
+  <div class="erp-brand">
+    <div class="logo" aria-hidden="true">ERP</div>
+    <div class="brand-text">
+      <strong>Minha Loja</strong>
+      <div class="tagline">Experience Hub</div>
+    </div>
+  </div>
+  <nav class="erp-nav">
+    {% with request.resolver_match as match %}
+      {% with app_name=match.app_name|default:'' url_name=match.url_name|default:'' %}
+        <div class="nav-section">
+          <span class="nav-heading">Visão</span>
+          <ul>
+            <li>
+              <a href="{% url 'dashboard' %}" class="{% if url_name == 'dashboard' %}is-active{% endif %}">
+                <span class="icon" data-lucide="layout-dashboard"></span>
+                <span class="label">Dashboard</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+        <div class="nav-section">
+          <span class="nav-heading {% if app_name == 'relatorios' %}is-active{% endif %}">Relatórios</span>
+          <ul>
+            <li>
+              <a href="{% url 'relatorios:index' %}" class="{% if app_name == 'relatorios' %}is-active{% endif %}">
+                <span class="icon" data-lucide="bar-chart-3"></span>
+                <span class="label">Relatórios</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+        <div class="nav-section">
+         <span class="nav-heading {% if app_name == 'products' or app_name == 'companies' or app_name == 'clients' %}is-active{% endif %}">Cadastros</span>
+          <ul>
+            <li>
+              <a href="{% url 'products:sync_list' %}" class="{% if app_name == 'products' and url_name == 'sync_list' %}is-active{% endif %}">
+                <span class="icon" data-lucide="refresh-ccw"></span>
+                <span class="label">Produtos sync</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'clients:sync_list' %}" class="{% if app_name == 'clients' and url_name == 'sync_list' %}is-active{% endif %}">
+                <span class="icon" data-lucide="refresh-ccw"></span>
+                <span class="label">Clientes sync</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'products:group_list' %}" class="{% if app_name == 'products' and url_name == 'group_list' or app_name == 'products' and url_name == 'group_edit' %}is-active{% endif %}">
+                <span class="icon" data-lucide="folder"></span>
+                <span class="label">Grupos de Produtos</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'companies:list' %}" class="{% if app_name == 'companies' %}is-active{% endif %}">
+                <span class="icon" data-lucide="building-2"></span>
+                <span class="label">Empresas</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'clients:index' %}" class="{% if app_name == 'clients' %}is-active{% endif %}">
+                <span class="icon" data-lucide="users-round"></span>
+                <span class="label">Clientes</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'products:supplier_list' %}" class="{% if app_name == 'products' %}{% if url_name == 'supplier_list' or url_name == 'supplier_edit' or url_name == 'supplier_delete' %}is-active{% endif %}{% endif %}">
+                <span class="icon" data-lucide="truck"></span>
+                <span class="label">Fornecedores</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+        <div class="nav-section">
+          <span class="nav-heading {% if app_name == 'sales' or app_name == 'purchases' or app_name == 'finance' %}is-active{% endif %}">Operações</span>
+          <ul>
+            <li>
+              <a href="{% url 'sales:quote_list' %}" class="{% if app_name == 'sales' and url_name != 'seller_list' and url_name != 'seller_edit' %}is-active{% endif %}">
+                <span class="icon" data-lucide="shopping-bag"></span>
+                <span class="label">Vendas</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'sales:api_order_list' %}" class="{% if app_name == 'sales' and url_name == 'api_order_list' or app_name == 'sales' and url_name == 'api_order_detail' %}is-active{% endif %}">
+                <span class="icon" data-lucide="receipt"></span>
+                <span class="label">Pedidos API</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'purchases:index' %}" class="{% if app_name == 'purchases' %}is-active{% endif %}">
+                <span class="icon" data-lucide="shopping-cart"></span>
+                <span class="label">Compras</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'estoque:inventory_list' %}" class="{% if app_name == 'estoque' %}is-active{% endif %}">
+                <span class="icon" data-lucide="clipboard-list"></span>
+                <span class="label">Estoque</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'sales:seller_list' %}" class="{% if app_name == 'sales' and url_name == 'seller_list' or app_name == 'sales' and url_name == 'seller_edit' %}is-active{% endif %}">
+                <span class="icon" data-lucide="users"></span>
+                <span class="label">Vendedores</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'finance:index' %}" class="{% if app_name == 'finance' %}is-active{% endif %}">
+                <span class="icon" data-lucide="wallet"></span>
+                <span class="label">Financeiro</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'custos:parameter_list' %}" class="{% if app_name == 'custos' %}is-active{% endif %}">
+                <span class="icon" data-lucide="percent"></span>
+                <span class="label">Custos</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+        <div class="nav-section">
+          <span class="nav-heading {% if app_name == 'admin' or app_name == 'core' %}is-active{% endif %}">Sistema</span>
+          <ul>
+            <li>
+              <a href="{% url 'core:settings_sefaz' %}" class="{% if app_name == 'core' and url_name == 'settings_sefaz' or app_name == 'core' and url_name == 'settings_email' or app_name == 'core' and url_name == 'settings_access' or app_name == 'core' and url_name == 'settings_access_edit' or app_name == 'core' and url_name == 'settings_profile' %}is-active{% endif %}">
+                <span class="icon" data-lucide="sliders"></span>
+                <span class="label">Configurações</span>
+              </a>
+            </li>
+            <li>
+              <a href="{% url 'admin:index' %}" class="{% if app_name == 'admin' %}is-active{% endif %}">
+                <span class="icon" data-lucide="settings"></span>
+                <span class="label">Admin</span>
+              </a>
+            </li>
+          </ul>
+        </div>
+      {% endwith %}
+    {% endwith %}
+  </nav>
+</aside>

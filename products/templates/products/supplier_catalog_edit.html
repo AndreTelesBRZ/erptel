@@ -1,0 +1,35 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Editar item · {{ supplier.name }}{% endblock %}
+{% block hero_title %}Editar item do catálogo{% endblock %}
+{% block hero_subtitle %}{{ supplier.name }}{% endblock %}
+{% block hero_actions %}
+  <a class="button is-light" href="{% url 'products:supplier_catalog' supplier.pk %}">Voltar ao catálogo</a>
+{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <form method="post">
+      {% csrf_token %}
+      <div class="columns is-multiline">
+        {% for field in form %}
+          <div class="column is-one-third">
+            <div class="field">
+              {{ field.label_tag }}
+              <div class="control">
+                {{ field }}
+              </div>
+              {% if field.errors %}
+                <p class="help is-danger">{{ field.errors.0 }}</p>
+              {% endif %}
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="field is-grouped">
+        <div class="control"><button class="button is-primary" type="submit">Salvar alterações</button></div>
+        <div class="control"><a class="button is-light" href="{% url 'products:supplier_catalog' supplier.pk %}">Cancelar</a></div>
+      </div>
+    </form>
+  </div>
+{% endblock %}

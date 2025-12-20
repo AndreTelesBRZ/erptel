@@ -1,9 +1,15 @@
 {% extends 'core/base.html' %}
 
+{% block hero_title %}Importar Produtos (CSV){% endblock %}
+{% block hero_subtitle %}Valide e acompanhe o progresso da importação{% endblock %}
+
 {% block content %}
 <section class="section">
   <div class="container">
-    <h1 class="title">Importar Produtos (CSV)</h1>
+    <div class="content box">
+      <p>Use um arquivo CSV separado por ponto e vírgula (<code>;</code>). A forma mais segura é exportar a planilha atual em <a href="{% url 'products:export_csv' %}">Produtos → Exportar CSV</a>, realizar as alterações desejadas e reenviar aqui.</p>
+      <p>Produtos com o mesmo código serão atualizados; códigos novos geram itens adicionais.</p>
+    </div>
     <form method="post" enctype="multipart/form-data">
       {% csrf_token %}
       {{ form.as_p }}

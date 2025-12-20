@@ -2,12 +2,16 @@
 
 {% block title %}Remover Cliente{% endblock %}
 
+{% block hero_title %}Remover Cliente{% endblock %}
+{% block hero_subtitle %}Esta ação não pode ser desfeita{% endblock %}
+
 {% block content %}
-  <h1 class="title">Remover Cliente</h1>
-  <p>Tem certeza que deseja remover {{ client.first_name }} {{ client.last_name }}?</p>
-  <form method="post">
-    {% csrf_token %}
-    <button class="button is-danger" type="submit">Sim, remover</button>
-    <a class="button" href="{% url 'clients:index' %}">Cancelar</a>
-  </form>
+  <div class="box">
+    <p>Tem certeza que deseja remover <strong>{{ client.first_name }} {{ client.last_name }}</strong>?</p>
+    <form method="post" class="is-flex is-justify-content-space-between" style="gap:0.5rem;">
+      {% csrf_token %}
+      <a class="button" href="{% url 'clients:index' %}">Cancelar</a>
+      <button class="button is-danger" type="submit">Sim, remover</button>
+    </form>
+  </div>
 {% endblock %}

@@ -1,0 +1,85 @@
+{% extends 'core/base.html' %}
+
+{% block title %}{% if is_edit %}Editar{% else %}Novo{% endif %} parâmetro{% endblock %}
+
+{% block hero_title %}{% if is_edit %}Editar parâmetro{% else %}Novo parâmetro{% endif %}{% endblock %}
+{% block hero_subtitle %}Defina valores globais usados em cálculos de custo.{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <form method="post" novalidate>
+      {% csrf_token %}
+      {% if form.non_field_errors %}
+        <div class="notification is-danger">
+          {{ form.non_field_errors|join:', ' }}
+        </div>
+      {% endif %}
+      <header style="margin-bottom:1rem">
+        <div>
+          <h2 style="margin:0">{% if is_edit %}Atualizar parâmetro{% else %}Criar parâmetro{% endif %}</h2>
+          <p class="small text-muted">Preencha os campos e salve para disponibilizar aos demais módulos.</p>
+        </div>
+      </header>
+
+      <div class="columns is-multiline">
+        <div class="column is-6">
+          <label class="label">Nome</label>
+          {{ form.label }}
+          {% if form.label.errors %}
+            <p class="help is-danger">{{ form.label.errors|join:", " }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-3">
+          <label class="label">Chave</label>
+          {{ form.key }}
+          <p class="help">Use apenas letras minúsculas, números ou hífen.</p>
+          {% if form.key.errors %}
+            <p class="help is-danger">{{ form.key.errors|join:", " }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-3">
+          <label class="label">Unidade</label>
+          {{ form.unit }}
+          {% if form.unit.errors %}
+            <p class="help is-danger">{{ form.unit.errors|join:", " }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-3">
+          <label class="label">Valor</label>
+          {{ form.value }}
+          {% if form.value.errors %}
+            <p class="help is-danger">{{ form.value.errors|join:", " }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-3">
+          <label class="checkbox" style="margin-top:2rem">
+            {{ form.is_percentage }} Percentual
+          </label>
+          {% if form.is_percentage.errors %}
+            <p class="help is-danger">{{ form.is_percentage.errors|join:", " }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-3">
+          <label class="checkbox" style="margin-top:2rem">
+            {{ form.is_active }} Ativo
+          </label>
+          {% if form.is_active.errors %}
+            <p class="help is-danger">{{ form.is_active.errors|join:", " }}</p>
+          {% endif %}
+        </div>
+        <div class="column is-12">
+          <label class="label">Descrição</label>
+          {{ form.description }}
+          {% if form.description.errors %}
+            <p class="help is-danger">{{ form.description.errors|join:", " }}</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="buttons">
+        <button class="button is-primary" type="submit">Salvar</button>
+        <a class="button is-secondary" href="{% url 'custos:parameter_list' %}">Cancelar</a>
+      </div>
+    </form>
+  </div>
+{% endblock %}

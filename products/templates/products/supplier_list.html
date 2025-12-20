@@ -1,0 +1,392 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Fornecedores{% endblock %}
+{% block hero_title %}Cadastro de fornecedores{% endblock %}
+{% block hero_subtitle %}Gerencie os fornecedores utilizados pelos produtos{% endblock %}
+
+{% block content %}
+  <div class="columns">
+    <div class="column is-4">
+      <div class="box">
+        <h2 class="title is-6">{% if is_edit %}Editar fornecedor{% else %}Novo fornecedor{% endif %}</h2>
+  <div class="notification is-light">Somente leitura</div>
+          {% csrf_token %}
+          {% if form.non_field_errors %}
+            <div class="notification is-danger">
+              {{ form.non_field_errors|join:', ' }}
+            </div>
+          {% endif %}
+          <div class="field">
+            <label class="label" for="{{ form.name.id_for_label }}">Nome</label>
+            <div class="control">
+              {{ form.name }}
+            </div>
+            {% if form.name.errors %}
+              <p class="help is-danger">{{ form.name.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            <label class="label" for="{{ form.person_type.id_for_label }}">Tipo de pessoa</label>
+            <div class="control">
+              {{ form.person_type }}
+            </div>
+            {% if form.person_type.errors %}
+              <p class="help is-danger">{{ form.person_type.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            <label class="label" for="{{ form.document.id_for_label }}">CPF/CNPJ</label>
+            <div class="field has-addons">
+              <div class="control is-expanded">
+                {{ form.document }}
+              </div>
+              <div class="control">
+                <button class="button is-info" type="button" id="supplier-sefaz-button" data-sefaz-url="{% url 'products:supplier_sefaz_lookup' %}" data-configured="{{ sefaz_configured|yesno:'true,false' }}">Consultar SEFAZ</button>
+              </div>
+            </div>
+            <p class="help {% if not sefaz_configured %}is-warning{% endif %}" id="supplier-sefaz-feedback" aria-live="polite">{% if not sefaz_configured %}SEFAZ API não está configurada. Acesse Sistema &gt; Configurações.{% endif %}</p>
+            {% if form.document.errors %}
+              <p class="help is-danger">{{ form.document.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            <label class="label" for="{{ form.code.id_for_label }}">Código</label>
+            <div class="control">
+              {{ form.code }}
+            </div>
+            <p class="help">Gerado automaticamente a partir do CPF/CNPJ.</p>
+            {% if form.code.errors %}
+              <p class="help is-danger">{{ form.code.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.state_registration.label_tag }}
+            <div class="control">
+              {{ form.state_registration }}
+            </div>
+            {% if form.state_registration.errors %}
+              <p class="help is-danger">{{ form.state_registration.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.email.label_tag }}
+            <div class="control">
+              {{ form.email }}
+            </div>
+            {% if form.email.errors %}
+              <p class="help is-danger">{{ form.email.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.phone.label_tag }}
+            <div class="control">
+              {{ form.phone }}
+            </div>
+            {% if form.phone.errors %}
+              <p class="help is-danger">{{ form.phone.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.address.label_tag }}
+            <div class="control">
+              {{ form.address }}
+            </div>
+            {% if form.address.errors %}
+              <p class="help is-danger">{{ form.address.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="columns">
+            <div class="column is-4">
+              <div class="field">
+                {{ form.number.label_tag }}
+                <div class="control">
+                  {{ form.number }}
+                </div>
+                {% if form.number.errors %}
+                  <p class="help is-danger">{{ form.number.errors.0 }}</p>
+                {% endif %}
+              </div>
+            </div>
+            <div class="column is-8">
+              <div class="field">
+                {{ form.complement.label_tag }}
+                <div class="control">
+                  {{ form.complement }}
+                </div>
+                {% if form.complement.errors %}
+                  <p class="help is-danger">{{ form.complement.errors.0 }}</p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="columns">
+            <div class="column is-6">
+              <div class="field">
+                {{ form.district.label_tag }}
+                <div class="control">
+                  {{ form.district }}
+                </div>
+                {% if form.district.errors %}
+                  <p class="help is-danger">{{ form.district.errors.0 }}</p>
+                {% endif %}
+              </div>
+            </div>
+            <div class="column is-6">
+              <div class="field">
+                {{ form.city.label_tag }}
+                <div class="control">
+                  {{ form.city }}
+                </div>
+                {% if form.city.errors %}
+                  <p class="help is-danger">{{ form.city.errors.0 }}</p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="columns">
+            <div class="column is-3">
+              <div class="field">
+                {{ form.state.label_tag }}
+                <div class="control">
+                  {{ form.state }}
+                </div>
+                {% if form.state.errors %}
+                  <p class="help is-danger">{{ form.state.errors.0 }}</p>
+                {% endif %}
+              </div>
+            </div>
+            <div class="column is-6">
+              <div class="field">
+                {{ form.zip_code.label_tag }}
+                <div class="control">
+                  {{ form.zip_code }}
+                </div>
+                {% if form.zip_code.errors %}
+                  <p class="help is-danger">{{ form.zip_code.errors.0 }}</p>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+          <div class="field">
+            {{ form.notes.label_tag }}
+            <div class="control">
+              {{ form.notes }}
+            </div>
+            {% if form.notes.errors %}
+              <p class="help is-danger">{{ form.notes.errors.0 }}</p>
+            {% endif %}
+          </div>
+          <div class="field is-grouped">
+            <div class="control">
+              <button class="button is-primary" type="submit">{% if is_edit %}Atualizar{% else %}Salvar{% endif %}</button>
+            </div>
+            {% if is_edit %}
+              <div class="control">
+                <a class="button is-light" href="{% url 'products:supplier_list' %}">Cancelar</a>
+              </div>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="column">
+      <div class="box">
+        <div class="level">
+          <div class="level-left">
+            <h2 class="title is-6">Fornecedores cadastrados</h2>
+          </div>
+        </div>
+        <table class="table is-fullwidth is-hoverable">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Tipo</th>
+              <th>Documento</th>
+              <th>E-mail</th>
+              <th>Telefone</th>
+              <th>Código</th>
+              <th style="width:160px"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for supplier in suppliers %}
+              <tr>
+                <td><a href="{% url 'products:supplier_catalog' supplier.pk %}">{{ supplier.name }}</a></td>
+                <td>{{ supplier.get_person_type_display }}</td>
+                <td>{{ supplier.formatted_document|default:'—' }}</td>
+                <td>{{ supplier.email|default:'—' }}</td>
+               <td>{{ supplier.phone|default:'—' }}</td>
+               <td>{{ supplier.code|default:'—' }}</td>
+               <td class="has-text-right">
+                 <div class="buttons are-small is-right">
+                    <span class="tag is-light">Somente leitura</span>
+                  </div>
+                </td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="7">Nenhum fornecedor cadastrado ainda.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const button = document.getElementById('supplier-sefaz-button');
+      const feedback = document.getElementById('supplier-sefaz-feedback');
+      const docInput = document.getElementById('{{ form.document.id_for_label }}');
+      const codeInput = document.getElementById('{{ form.code.id_for_label }}');
+      const nameInput = document.getElementById('{{ form.name.id_for_label }}');
+      const personType = document.getElementById('{{ form.person_type.id_for_label }}');
+      const stateRegistrationInput = document.getElementById('{{ form.state_registration.id_for_label }}');
+      const emailInput = document.getElementById('{{ form.email.id_for_label }}');
+      const phoneInput = document.getElementById('{{ form.phone.id_for_label }}');
+      const addressInput = document.getElementById('{{ form.address.id_for_label }}');
+      const numberInput = document.getElementById('{{ form.number.id_for_label }}');
+      const complementInput = document.getElementById('{{ form.complement.id_for_label }}');
+      const districtInput = document.getElementById('{{ form.district.id_for_label }}');
+      const cityInput = document.getElementById('{{ form.city.id_for_label }}');
+      const stateInput = document.getElementById('{{ form.state.id_for_label }}');
+      const zipInput = document.getElementById('{{ form.zip_code.id_for_label }}');
+      const notesInput = document.getElementById('{{ form.notes.id_for_label }}');
+
+      if (!button || !feedback || !docInput) {
+        return;
+      }
+
+      const setFeedback = function (message, statusClass) {
+        feedback.textContent = message || '';
+        feedback.classList.remove('is-danger', 'is-success', 'is-info', 'is-warning');
+        if (statusClass) {
+          feedback.classList.add(statusClass);
+        }
+      };
+
+      const isConfigured = button.dataset.configured === 'true';
+
+      const updateButtonState = function () {
+        if (!isConfigured) {
+          setFeedback('SEFAZ API não está configurada. Acesse Sistema > Configurações.', 'is-warning');
+          button.disabled = true;
+          return;
+        }
+        if (!personType) {
+          const hasSuccess = feedback.classList.contains('is-success');
+          if (!button.classList.contains('is-loading') && !hasSuccess) {
+            setFeedback('', null);
+          }
+          button.disabled = false;
+          return;
+        }
+        if (personType.value !== 'J') {
+          setFeedback('Consulta disponível apenas para Pessoa Jurídica.', 'is-info');
+          button.disabled = true;
+          return;
+        }
+        const hasSuccess = feedback.classList.contains('is-success');
+        if (!button.classList.contains('is-loading') && !hasSuccess) {
+          setFeedback('', null);
+        }
+        button.disabled = false;
+      };
+
+      if (personType) {
+        updateButtonState();
+        personType.addEventListener('change', updateButtonState);
+      }
+
+      button.addEventListener('click', async function () {
+        const endpoint = button.dataset.sefazUrl;
+        if (!endpoint) {
+          setFeedback('Endpoint da SEFAZ não configurado.', 'is-danger');
+          return;
+        }
+
+        if (!isConfigured) {
+          setFeedback('SEFAZ API não está configurada. Acesse Sistema > Configurações.', 'is-warning');
+          return;
+        }
+
+        if (personType && personType.value !== 'J') {
+          personType.value = 'J';
+          personType.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+
+        const cnpj = (docInput.value || '').trim();
+        if (!cnpj) {
+          setFeedback('Informe um CNPJ para consultar.', 'is-info');
+          docInput.focus();
+          return;
+        }
+
+        button.classList.add('is-loading');
+        button.disabled = true;
+        setFeedback('Consultando dados da SEFAZ...', 'is-info');
+
+        try {
+          const url = new URL(endpoint, window.location.origin);
+          url.searchParams.set('cnpj', cnpj);
+          const response = await fetch(url.toString(), {
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+          });
+
+          let body = {};
+          try {
+            body = await response.json();
+          } catch (error) {
+            if (!response.ok) {
+              throw new Error('Não foi possível obter os dados da SEFAZ.');
+            }
+          }
+
+          if (!response.ok) {
+            throw new Error(body.error || 'Não foi possível obter os dados da SEFAZ.');
+          }
+
+          const data = body.data || {};
+          const fieldMap = [
+            [docInput, data.document],
+            [codeInput, data.code],
+            [nameInput, data.name],
+            [stateRegistrationInput, data.state_registration],
+            [emailInput, data.email],
+            [phoneInput, data.phone],
+            [addressInput, data.address],
+            [numberInput, data.number],
+            [complementInput, data.complement],
+            [districtInput, data.district],
+            [cityInput, data.city],
+            [stateInput, data.state],
+            [zipInput, data.zip_code],
+            [notesInput, data.notes],
+          ];
+          fieldMap.forEach(([el, value]) => {
+            if (!el || value === undefined || value === null) {
+              return;
+            }
+            el.value = value || '';
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+            el.dispatchEvent(new Event('change', { bubbles: true }));
+          });
+
+          if (personType && data.person_type) {
+            personType.value = data.person_type;
+            personType.dispatchEvent(new Event('change', { bubbles: true }));
+          }
+
+          setFeedback('Dados carregados da SEFAZ.', 'is-success');
+        } catch (error) {
+          setFeedback(error.message, 'is-danger');
+        } finally {
+          button.classList.remove('is-loading');
+          updateButtonState();
+        }
+      });
+    });
+  </script>
+{% endblock %}

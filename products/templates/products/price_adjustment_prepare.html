@@ -1,0 +1,192 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Reajuste de preços{% endblock %}
+{% block hero_title %}Reajuste de preços{% endblock %}
+{% block hero_subtitle %}Defina a regra e gere um lote pendente de aprovação{% endblock %}
+
+{% block content %}
+  <div class="notification is-info is-light">
+    <p>Você selecionou <strong>{{ products|length }}</strong> produtos. Configure abaixo como o novo preço deve ser calculado. O resultado será salvo como <strong>pendente</strong> para aprovação posterior.</p>
+  </div>
+
+  <form method="post" class="box" data-aos="fade-up">
+    {% csrf_token %}
+    {% for pk in selected_ids %}
+      <input type="hidden" name="selected_ids" value="{{ pk }}">
+    {% endfor %}
+    {% if preview_ready %}
+      <input type="hidden" name="preview_ready" value="1">
+    {% endif %}
+    {% if form.non_field_errors %}
+      <div class="notification is-danger is-light">
+        {% for error in form.non_field_errors %}
+          <p>{{ error }}</p>
+        {% endfor %}
+      </div>
+    {% endif %}
+    <div class="columns">
+      <div class="column is-4">
+        <div class="field">
+          {{ form.rule_type.label_tag }}
+          <div class="control">
+            {{ form.rule_type }}
+          </div>
+          {% if form.rule_type.help_text %}
+            <p class="help">{{ form.rule_type.help_text }}</p>
+          {% endif %}
+          {% if form.rule_type.errors %}
+            <p class="help is-danger">{{ form.rule_type.errors.0 }}</p>
+          {% endif %}
+        </div>
+        <div class="field">
+          {{ form.percent.label_tag }}
+          <div class="control">
+            {{ form.percent }}
+          </div>
+          {% if form.percent.help_text %}
+            <p class="help">{{ form.percent.help_text }}</p>
+          {% endif %}
+          {% if form.percent.errors %}
+            <p class="help is-danger">{{ form.percent.errors.0 }}</p>
+          {% endif %}
+        </div>
+        <div class="field">
+          {{ form.target_margin.label_tag }}
+          <div class="control">
+            {{ form.target_margin }}
+          </div>
+          {% if form.target_margin.help_text %}
+            <p class="help">{{ form.target_margin.help_text }}</p>
+          {% endif %}
+          {% if form.target_margin.errors %}
+            <p class="help is-danger">{{ form.target_margin.errors.0 }}</p>
+          {% endif %}
+        </div>
+        <div class="field">
+          {{ form.notes.label_tag }}
+          <div class="control">
+            {{ form.notes }}
+          </div>
+          {% if form.notes.errors %}
+            <p class="help is-danger">{{ form.notes.errors.0 }}</p>
+          {% endif %}
+        </div>
+        <div class="field is-grouped is-grouped-multiline">
+          <div class="control">
+            <button class="button is-info" type="submit" name="preview" value="1">Visualizar prévia</button>
+            <p class="help">Calcule a prévia para revisar os valores sugeridos.</p>
+          </div>
+          <div class="control">
+            <button class="button is-primary" type="submit" name="confirm" value="1" {% if not preview_ready %}disabled{% endif %}>
+              Confirmar e gerar lote pendente
+            </button>
+            {% if not preview_ready %}
+              <p class="help">Prévia obrigatória antes de confirmar.</p>
+            {% else %}
+              <p class="help">Os valores exibidos na tabela serão utilizados no lote.</p>
+            {% endif %}
+          </div>
+          <div class="control">
+            <a class="button is-light" href="{% url 'products:index' %}">Cancelar</a>
+          </div>
+        </div>
+      </div>
+      <div class="column">
+        <div class="table-container">
+          <table class="table is-fullwidth is-hoverable">
+            <thead>
+              <tr>
+                <th>Código</th>
+                <th>Descrição</th>
+                <th>Preço atual</th>
+                {% if preview_ready %}
+                  <th>Novo preço</th>
+                  <th>Diferença</th>
+                {% endif %}
+                <th>Custo</th>
+                <th>Margem atual (%)</th>
+                {% if preview_ready %}
+                  <th>Nova margem (%)</th>
+                  <th>Δ margem (%)</th>
+                  <th>Status</th>
+                  <th>Observações</th>
+                {% endif %}
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in product_rows %}
+                {% with product=row.product %}
+                <tr>
+                  <td>{{ product.code|default:'—' }}</td>
+                  <td>{{ product.name }}</td>
+                  <td>{{ row.old_price_display|default:'—' }}</td>
+                  {% if preview_ready %}
+                    <td>
+                      {% if row.new_price_display %}
+                        {{ row.new_price_display }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if row.has_difference %}
+                        <span class="{% if row.difference_sign > 0 %}has-text-success{% elif row.difference_sign < 0 %}has-text-danger{% endif %}">
+                          {{ row.difference_display }}
+                        </span>
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                  {% endif %}
+                  <td>{{ row.cost_display|default:'—' }}</td>
+                  <td>
+                    {% if row.old_margin_display %}
+                      {{ row.old_margin_display }}
+                    {% else %}
+                      —
+                    {% endif %}
+                  </td>
+                  {% if preview_ready %}
+                    <td>
+                      {% if row.new_margin_display %}
+                        {{ row.new_margin_display }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if row.has_margin_difference %}
+                        <span class="{% if row.margin_difference_sign > 0 %}has-text-success{% elif row.margin_difference_sign < 0 %}has-text-danger{% endif %}">
+                          {{ row.margin_difference_display }}
+                        </span>
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if row.status %}
+                        {{ row.status_label|default:row.status }}
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                    <td>
+                      {% if row.message %}
+                        {{ row.message }}
+                      {% elif row.status %}
+                        —
+                      {% else %}
+                        —
+                      {% endif %}
+                    </td>
+                  {% endif %}
+                </tr>
+                {% endwith %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </form>
+{% endblock %}

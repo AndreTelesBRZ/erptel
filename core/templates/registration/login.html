@@ -1,23 +1,55 @@
 {% extends 'core/base.html' %}
 
-{% block title %}Login{% endblock %}
+{% block title %}Acesso ao ERP{% endblock %}
 
-{% block content %}
-  <h1 class="title">Entrar</h1>
-  <form method="post">
-    {% csrf_token %}
-    <div class="field">
-  <label class="label">Nome de usuário</label>
-      <div class="control">
-        <input class="input" type="text" name="username" required autofocus>
+{% block auth_content %}
+  <section class="auth-hero">
+    <div class="auth-hero__copy" data-aos="fade-right">
+      <p class="eyebrow">Portal Operacional</p>
+      <h1>Bem-vindo de volta</h1>
+      <p class="lead">Acesse com seu usuário corporativo para acompanhar o dashboard, sincronizações e cadastros.</p>
+      <div class="auth-hero__stats">
+        <span class="chip"><span class="icon" data-lucide="package"></span> Catálogo online</span>
+        <span class="chip"><span class="icon" data-lucide="refresh-ccw"></span> Sync produtos/clientes</span>
+        <span class="chip"><span class="icon" data-lucide="shield-check"></span> Acesso seguro</span>
       </div>
     </div>
-    <div class="field">
-  <label class="label">Senha</label>
-      <div class="control">
-        <input class="input" type="password" name="password" required>
+    <div class="auth-card" data-aos="fade-left" data-aos-delay="80">
+      <div class="auth-card__header">
+        <p class="eyebrow">Login</p>
+        <h2>Entrar no ERP</h2>
+        <p class="small text-muted">Use as credenciais fornecidas pelo administrador.</p>
       </div>
+
+      {% if form.non_field_errors %}
+        <div class="notification is-danger is-light" role="alert">
+          {% for error in form.non_field_errors %}
+            <p>{{ error }}</p>
+          {% endfor %}
+        </div>
+      {% endif %}
+
+      <form method="post" novalidate class="form-grid">
+        {% csrf_token %}
+        <label class="form-field">
+          <span class="label">Usuário</span>
+          <input class="input{% if form.username.errors %} is-danger{% endif %}" type="text" name="username" value="{{ form.username.value|default:'' }}" required autofocus>
+          {% if form.username.errors %}
+            <small class="help is-danger">{{ form.username.errors.0 }}</small>
+          {% endif %}
+        </label>
+        <label class="form-field">
+          <span class="label">Senha</span>
+          <input class="input{% if form.password.errors %} is-danger{% endif %}" type="password" name="password" required>
+          {% if form.password.errors %}
+            <small class="help is-danger">{{ form.password.errors.0 }}</small>
+          {% endif %}
+        </label>
+        <div class="form-actions">
+          <a class="button is-text" href="{% url 'password_reset' %}">Esqueci minha senha</a>
+          <button class="button is-primary" type="submit">Entrar</button>
+        </div>
+      </form>
     </div>
-  <button class="button is-primary" type="submit">Entrar</button>
-  </form>
+  </section>
 {% endblock %}

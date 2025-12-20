@@ -1,0 +1,63 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Histórico de preços{% endblock %}
+{% block hero_title %}Histórico de alterações de preço{% endblock %}
+{% block hero_subtitle %}Acompanhe as decisões aplicadas sobre lotes de reajuste{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <header class="level">
+      <div class="level-left">
+        <h2 class="title is-6">Últimos {{ logs|length }} registros</h2>
+      </div>
+      {% if logs %}
+        <div class="level-right">
+          <a class="button is-light is-small" href="{% url 'products:price_adjustment_detail' logs.0.batch.pk %}">Abrir lote #{{ logs.0.batch.pk }}</a>
+        </div>
+      {% endif %}
+    </header>
+    <div class="table-container">
+      <table class="table is-fullwidth is-hoverable">
+        <thead>
+          <tr>
+            <th>Data</th>
+            <th>Produto</th>
+            <th>Ação</th>
+            <th>Preço anterior</th>
+            <th>Novo preço</th>
+            <th>Usuário</th>
+            <th>Lote</th>
+            <th>Observação</th>
+          </tr>
+        </thead>
+        <tbody>
+        {% for log in logs %}
+          <tr>
+            <td>{{ log.created_at|date:"d/m/Y H:i" }}</td>
+            <td><a href="{% url 'products:detail' log.product.pk %}">{{ log.product.name }}</a></td>
+            <td>
+              {% if log.action == 'approved' %}
+                <span class="tag is-success is-light">Aprovado</span>
+              {% elif log.action == 'rejected' %}
+                <span class="tag is-danger is-light">Rejeitado</span>
+              {% else %}
+                <span class="tag is-info is-light">Pendente</span>
+              {% endif %}
+            </td>
+            <td>{% if log.old_price is not None %}{{ log.old_price|floatformat:2 }}{% else %}—{% endif %}</td>
+            <td>{% if log.new_price is not None %}{{ log.new_price|floatformat:2 }}{% else %}—{% endif %}</td>
+            <td>{{ log.decided_by|default:"—" }}</td>
+            <td><a href="{% url 'products:price_adjustment_detail' log.batch.pk %}">#{{ log.batch.pk }}</a></td>
+            <td>{{ log.notes|default:"—" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8">Nenhuma alteração registrada até o momento.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% if limit < 1000 %}
+      <p class="small text-muted">Mostrando até {{ limit }} registros mais recentes.</p>
+    {% endif %}
+  </div>
+{% endblock %}

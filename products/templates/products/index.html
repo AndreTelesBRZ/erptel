@@ -1,29 +1,292 @@
 {% extends 'core/base.html' %}
+{% load ui_extras %}
 
 {% block title %}Produtos{% endblock %}
 
+{% block hero_title %}Produtos{% endblock %}
+{% block hero_subtitle %}Todas as lojas • Catálogo completo{% endblock %}
+
 {% block content %}
-  <h1 class="title">Produtos</h1>
-  <p><a class="button is-primary" href="{% url 'products:create' %}">Criar Produto</a>
-  <a class="button" href="{% url 'products:report' %}">Relatório</a></p>
-  <table class="table is-fullwidth">
-    <thead>
-      <tr><th>Name</th><th>Price</th><th>Created</th><th></th></tr>
-    </thead>
-    <tbody>
-      {% for p in products %}
-      <tr>
-        <td><a href="{% url 'products:detail' p.pk %}">{{ p.name }}</a></td>
-        <td>{{ p.price }}</td>
-        <td>{{ p.created_at }}</td>
-        <td>
-          <a class="button is-small" href="{% url 'products:update' p.pk %}">Editar</a>
-          <a class="button is-small is-danger" href="{% url 'products:delete' p.pk %}">Remover</a>
-        </td>
-      </tr>
-      {% empty %}
-  <tr><td colspan="4">Nenhum produto encontrado.</td></tr>
+  <div class="box data-card" data-aos="fade-up">
+    <header>
+      <div>
+        <h2 style="margin:0">Catálogo de produtos</h2>
+        <p class="small text-muted">Todas as coleções centralizadas em um só lugar.</p>
+      </div>
+      <div class="buttons">
+        <span class="tag">{{ total }} itens</span>
+      </div>
+    </header>
+  </div>
+
+  <form method="get" class="surface filters-panel" data-aos="fade-up" data-aos-delay="60">
+    <div class="filters-grid">
+      <div>
+        <label class="small text-muted" for="search-products">Pesquisa inteligente</label>
+        <div class="field has-addons is-fullwidth">
+          <div class="control is-expanded has-icons-left">
+            <input id="search-products" class="input" type="search" name="q" placeholder="Pesquisar por código, referência ou descrição (use % como curinga)" value="{{ filters.q }}" />
+            <span class="icon is-left" data-lucide="search"></span>
+          </div>
+          <div class="control"><button class="button is-primary" type="submit">Pesquisar</button></div>
+          <div class="control"><a class="button is-secondary" href="{% url 'products:index' %}">Limpar</a></div>
+        </div>
+      </div>
+      <div class="filter-controls">
+        <div class="field-group">
+          <div class="control has-icons-left">
+            <input class="input" type="number" step="0.01" name="min_price" placeholder="Preço mín" value="{{ filters.min_price }}" />
+          </div>
+          <div class="control has-icons-left">
+            <input class="input" type="number" step="0.01" name="max_price" placeholder="Preço máx" value="{{ filters.max_price }}" />
+          </div>
+          <div class="control">
+            <div class="select is-small">
+              <select name="company">
+                <option value="">Todas as empresas</option>
+                {% for company in companies %}
+                  {% with label=company.trade_name|default:company.name %}
+                    <option value="{{ company.id }}" {% if selected_company == company.id %}selected{% endif %}>{{ label }}</option>
+                  {% endwith %}
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="control">
+            <label class="checkbox">
+              <input type="checkbox" name="in_stock" value="1" {% if filters.in_stock %}checked{% endif %}>
+              Em estoque
+            </label>
+          </div>
+          <div class="control">
+            <label class="checkbox">
+              <input type="checkbox" name="has_image" value="1" {% if filters.has_image %}checked{% endif %}>
+              Com imagem
+            </label>
+          </div>
+          <div class="control">
+            <div class="select is-small">
+              <select name="per_page" onchange="window.location=this.options[this.selectedIndex].dataset.href">
+                {% for n in per_page_options %}
+                  <option value="{{ n }}" data-href="{% per_page_url n %}" {% if per_page == n %}selected{% endif %}>{{ n }}/página</option>
+                {% endfor %}
+              </select>
+            </div>
+          </div>
+          <div class="control">
+            <label class="checkbox small">
+              <input type="checkbox" {% if dense %}checked{% endif %}
+                     onchange="window.location=this.checked ? '{% qs_url dense='1' page='1' %}' : '{% qs_url dense='0' page='1' %}'">
+              Visualização compacta
+            </label>
+          </div>
+        </div>
+        <input type="hidden" name="sort" value="{{ sort }}">
+        <input type="hidden" name="dir" value="{{ dir }}">
+      </div>
+    </div>
+  </form>
+
+  {% if filters.q or filters.min_price or filters.max_price or filters.in_stock or filters.has_image %}
+  <div class="tags are-medium" style="margin-top:0.5rem">
+    {% if filters.q %}
+      <a class="tag is-info is-light" href="{% qs_url q=None page='1' %}">Busca: "{{ filters.q }}" ×</a>
+    {% endif %}
+    {% if filters.min_price %}
+      <a class="tag is-info is-light" href="{% qs_url min_price=None page='1' %}">Min: {{ filters.min_price }} ×</a>
+    {% endif %}
+    {% if filters.max_price %}
+      <a class="tag is-info is-light" href="{% qs_url max_price=None page='1' %}">Max: {{ filters.max_price }} ×</a>
+    {% endif %}
+    {% if filters.in_stock %}
+      <a class="tag is-success is-light" href="{% qs_url in_stock=None page='1' %}">Em estoque ×</a>
+    {% endif %}
+    {% if filters.has_image %}
+      <a class="tag is-success is-light" href="{% qs_url has_image=None page='1' %}">Com imagem ×</a>
+    {% endif %}
+    {% if selected_company_obj %}
+      <a class="tag is-info is-light" href="{% qs_url company=None page='1' %}">
+        Empresa: {{ selected_company_obj.code }} - {{ selected_company_obj.trade_name|default:selected_company_obj.name }} ×
+      </a>
+    {% endif %}
+    <a class="tag is-light" href="{% url 'products:index' %}">Limpar</a>
+  </div>
+  {% endif %}
+
+  <div class="grid products-layout" data-aos="fade-up" data-aos-delay="90">
+    <div class="box data-card">
+      <form id="products-pdf-form" method="post" action="{% url 'products:report_pdf' %}">
+        {% csrf_token %}
+        <input type="hidden" name="return_url" value="{{ request.get_full_path }}">
+        <table class="table is-fullwidth is-hoverable {% if dense %}is-compact{% endif %}">
+        <thead>
+          <tr>
+            {% if user.is_authenticated %}
+              <th style="width:44px">
+                <label class="checkbox">
+                  <input type="checkbox" id="select-all-products">
+                </label>
+              </th>
+            {% endif %}
+            <th class="is-narrow" style="width:48px;text-align:center">#</th>
+            <th style="width:64px">Imagem</th>
+            <th>
+              {% with col='name' %}
+                <a href="{% sort_url col sort dir %}">Descrição {% sort_caret col sort dir %}</a>
+              {% endwith %}
+            </th>
+            <th style="width:140px">
+              {% with col='code' %}
+                <a href="{% sort_url col sort dir %}">Código {% sort_caret col sort dir %}</a>
+              {% endwith %}
+            </th>
+            <th style="width:140px">
+              {% with col='reference' %}
+                <a href="{% sort_url col sort dir %}">Referência {% sort_caret col sort dir %}</a>
+              {% endwith %}
+            </th>
+            <th style="width:90px">Unidade</th>
+            <th style="width:120px">
+              {% with col='price' %}
+                <a href="{% sort_url col sort dir %}">Preço {% sort_caret col sort dir %}</a>
+              {% endwith %}
+            </th>
+            <th style="width:120px">
+              {% with col='stock' %}
+                <a href="{% sort_url col sort dir %}">Estoque {% sort_caret col sort dir %}</a>
+              {% endwith %}
+            </th>
+            <th style="width:120px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in products %}
+          <tr>
+            {% if user.is_authenticated %}
+              <td>
+                <label class="checkbox">
+                  <input type="checkbox" name="product_ids" value="{{ p.pk }}" class="product-select">
+                </label>
+              </td>
+            {% endif %}
+            <td style="text-align:center">{{ row_start|add:forloop.counter0 }}</td>
+            <td>
+              {% with img=p.images.first %}
+                {% if img and img.image %}
+                  <figure class="image is-48x48"><img src="{{ img.image.url }}" alt="Imagem"></figure>
+                {% else %}
+                  <span class="tag is-light">img</span>
+                {% endif %}
+              {% endwith %}
+            </td>
+            <td>
+              <strong><a href="{% url 'products:detail' p.pk %}">{{ p.name }}</a></strong>
+              <div class="small text-muted">{{ p.description|default:''|truncatechars:120 }}</div>
+              {% if not p.is_lifecycle_active %}
+                <span class="tag is-danger is-light">Fora de linha</span>
+              {% elif p.lifecycle_end_date %}
+                <span class="tag is-warning is-light">Ativo até {{ p.lifecycle_end_date|date:"d/m/Y" }}</span>
+              {% endif %}
+            </td>
+            <td>{{ p.code|default:'—' }}</td>
+            <td>{% firstof p.reference p.supplier_code '—' %}</td>
+            <td>{{ p.unit|default:'—' }}</td>
+          <td>{{ p.price|floatformat:2 }}</td>
+          <td>{{ p.company_stock|floatformat:2 }}</td>
+          <td>
+              <span class="tag is-light">Somente leitura</span>
+          </td>
+        </tr>
+          {% empty %}
+          <tr><td colspan="{% if user.is_authenticated %}10{% else %}9{% endif %}">Nenhum produto encontrado.</td></tr>
+          {% endfor %}
+        </tbody>
+        </table>
+      </form>
+    </div>
+    <div class="box data-card" data-aos="fade-up" data-aos-delay="150">
+      <h3 class="small text-muted" style="text-transform:uppercase; letter-spacing:0.18em;">Ações rápidas</h3>
+      <div class="buttons is-flex is-flex-direction-column">
+        {% if user.is_authenticated %}
+          <button class="button is-warning" type="submit" form="products-pdf-form" formaction="{% url 'products:price_adjustment_prepare' %}" formmethod="post" disabled>Simular reajuste</button>
+          <button class="button is-secondary" type="submit" form="products-pdf-form" formaction="{% url 'products:export_csv' %}" formmethod="post" disabled>Exportar selecionados</button>
+          <button class="button is-secondary" type="submit" form="products-pdf-form" disabled>Gerar PDF selecionados</button>
+          {% if user.is_staff %}
+            <a class="button is-secondary" href="{% url 'products:import_upload' %}">Importar CSV</a>
+            <a class="button is-secondary" href="{% url 'products:import_preview' %}">Importar c/ mapeamento</a>
+          {% endif %}
+        {% else %}
+          <a class="button is-secondary" href="{% url 'products:export_csv' %}">Exportar catálogo</a>
+        {% endif %}
+      </div>
+      <hr>
+      <p class="small text-muted">Quantidade de Produtos</p>
+      <p class="title is-4" style="margin:0">{{ total }}</p>
+    </div>
+  </div>
+
+  {% if is_paginated %}
+  <nav class="pagination is-centered" role="navigation" aria-label="pagination">
+    {% if page_obj.has_previous %}
+      <a class="pagination-previous" href="{% page_url page_obj.previous_page_number %}">Anterior</a>
+    {% else %}
+      <a class="pagination-previous" disabled>Anterior</a>
+    {% endif %}
+    {% if page_obj.has_next %}
+      <a class="pagination-next" href="{% page_url page_obj.next_page_number %}">Próxima</a>
+    {% else %}
+      <a class="pagination-next" disabled>Próxima</a>
+    {% endif %}
+    <ul class="pagination-list">
+      {% for p in page_obj.paginator.page_range %}
+        {% if p == page_obj.number %}
+          <li><a class="pagination-link is-current">{{ p }}</a></li>
+        {% else %}
+          <li><a class="pagination-link" href="{% page_url p %}">{{ p }}</a></li>
+        {% endif %}
       {% endfor %}
-    </tbody>
-  </table>
+    </ul>
+  </nav>
+  {% endif %}
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  {% if user.is_authenticated and products %}
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const form = document.getElementById('products-pdf-form');
+      if (!form) return;
+      const master = document.getElementById('select-all-products');
+      const checkboxes = Array.from(form.querySelectorAll('.product-select'));
+      const submitButtons = Array.from(document.querySelectorAll('[form="products-pdf-form"]'));
+
+      function updateState() {
+        const anyChecked = checkboxes.some(cb => cb.checked);
+        submitButtons.forEach(btn => {
+          btn.disabled = !anyChecked;
+        });
+        if (master) {
+          master.indeterminate = !anyChecked ? false : !checkboxes.every(cb => cb.checked);
+          master.checked = checkboxes.length ? checkboxes.every(cb => cb.checked) : false;
+        }
+      }
+
+      if (master) {
+        master.addEventListener('change', function () {
+          checkboxes.forEach(cb => {
+            cb.checked = master.checked;
+          });
+          updateState();
+        });
+      }
+
+      checkboxes.forEach(cb => {
+        cb.addEventListener('change', updateState);
+      });
+
+      updateState();
+    });
+  </script>
+  {% endif %}
 {% endblock %}

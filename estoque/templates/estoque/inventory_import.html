@@ -1,0 +1,80 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Importar contagens · {{ inventory.name }}{% endblock %}
+
+{% block hero_title %}Importar contagens{% endblock %}
+{% block hero_subtitle %}Inventário: {{ inventory.name }}{% endblock %}
+{% block hero_actions %}
+  <a class="button is-light" href="{% url 'estoque:inventory_detail' inventory.pk %}">Voltar</a>
+  <a class="button is-secondary" href="{% url 'estoque:inventory_export' inventory.pk %}">Baixar modelo</a>
+{% endblock %}
+
+{% block content %}
+  <section class="data-section">
+    <div class="box data-card">
+      <header>
+        <h2>Carregar arquivo CSV</h2>
+      </header>
+      <p class="small text-muted">
+        Utilize a planilha exportada do próprio inventário para garantir a estrutura correta.
+        Preencha as colunas desejadas e reenvié-la abaixo para atualizar as contagens.
+      </p>
+      <form method="post" enctype="multipart/form-data" class="inventory-import-form">
+        {% csrf_token %}
+        <div class="field">
+          <label class="label" for="{{ form.csv_file.id_for_label }}">{{ form.csv_file.label }}</label>
+          <div class="file has-name is-fullwidth">
+            <label class="file-label">
+              {{ form.csv_file }}
+              <span class="file-cta">
+                <span class="file-label">Escolher arquivo…</span>
+              </span>
+              <span class="file-name js-file-name">Nenhum arquivo selecionado</span>
+            </label>
+          </div>
+          {% if form.csv_file.errors %}
+            <p class="help is-danger">{{ form.csv_file.errors.0 }}</p>
+          {% endif %}
+        </div>
+        {% if can_close %}
+          <div class="field">
+            <label class="checkbox">
+              {{ form.close_inventory }}
+              {{ form.close_inventory.label }}
+            </label>
+          </div>
+        {% endif %}
+        <div class="field is-grouped">
+          <div class="control">
+            <button class="button is-primary" type="submit">Importar arquivo</button>
+          </div>
+          <div class="control">
+            <a class="button is-light" href="{% url 'estoque:inventory_detail' inventory.pk %}">Cancelar</a>
+          </div>
+        </div>
+      </form>
+      <hr>
+      <p class="small text-muted">
+        O arquivo deve conter, no mínimo, as colunas listadas abaixo. Apenas linhas com valores preenchidos em
+        <strong>Contagem</strong>, <strong>Recontagem</strong> ou <strong>Encerramento</strong> serão consideradas.
+      </p>
+      <ul class="small">
+        {% for header in expected_headers %}
+          <li>{{ header }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+  </section>
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const fileInput = document.querySelector('.inventory-import-form input[type="file"]');
+      const fileNameEl = document.querySelector('.inventory-import-form .js-file-name');
+      if (fileInput && fileNameEl) {
+        fileInput.addEventListener('change', function () {
+          const name = this.files && this.files.length ? this.files[0].name : 'Nenhum arquivo selecionado';
+          fileNameEl.textContent = name;
+        });
+      }
+    });
+  </script>
+{% endblock %}

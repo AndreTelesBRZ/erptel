@@ -1,0 +1,38 @@
+/* Admin skin aligned with the main theme */
+body.login, body.dashboard, body.app-index {
+  background: radial-gradient(140% 140% at 0% 0%, #fef7f1 0%, #f3f7fd 40%, #f1f3f8 100%);
+}
+
+#header {
+  background: linear-gradient(120deg, #0ea5e9, #f97316);
+}
+
+#branding h1, #branding h1 a {
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.module, .dashboard #content-main .module, .dashboard #content-related .module {
+  border-radius: 14px;
+  box-shadow: 0 18px 48px -30px rgba(12, 25, 54, 0.4);
+  border: 1px solid rgba(12, 25, 54, 0.08);
+}
+
+.button, input[type=submit], input[type=button], .submit-row input {
+  border-radius: 10px;
+  font-weight: 600;
+  border: 1px solid transparent;
+  background: linear-gradient(120deg, #f97316, #0ea5e9);
+  color: #fff;
+}
+
+table#result_list thead th {
+  background: rgba(14, 165, 233, 0.08);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.object-tools a {
+  border-radius: 10px;
+}

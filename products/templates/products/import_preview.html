@@ -1,0 +1,100 @@
+{% extends 'core/base.html' %}
+
+{% block hero_title %}Pré-visualizar Importação{% endblock %}
+{% block hero_subtitle %}Confirme colunas e faça o mapeamento{% endblock %}
+
+{% block content %}
+<section class="section">
+  <div class="container">
+    <div class="content box">
+      <p>Confirme as colunas do CSV e faça o mapeamento.</p>
+    </div>
+    <h2>Headers</h2>
+    <ul>
+      {% for h in headers %}
+        <li>{{ forloop.counter0 }}: {{ h }}</li>
+      {% endfor %}
+    </ul>
+    <h2>Preview (primeiras linhas)</h2>
+    <table class="table is-fullwidth">
+      <thead>
+        <tr>
+          {% for h in headers %}<th>{{ h }}</th>{% endfor %}
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in preview %}
+        <tr>
+          {% for cell in row %}<td>{{ cell }}</td>{% endfor %}
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <form method="post">
+      {% csrf_token %}
+      {{ mapping_form.mapping_json }}
+      <h3>Mapeamento automático</h3>
+      <p>Escolha qual coluna do CSV corresponde a cada campo do sistema. Deixe em branco para ignorar.</p>
+      <div class="box">
+        <div class="columns is-multiline">
+          {% for field,label in (
+            ('code','Código do Produto'),
+            ('name','Nome/Descrição'),
+            ('price','Preço'),
+            ('short_description','Descrição Curta'),
+            ('unit','Unidade'),
+            ('ncm','NCM'),
+            ('origin','Origem'),
+            ('stock','Estoque'),
+            ('cost_price','Preço de Custo'),
+            ('supplier','Fornecedor'),
+            ('location','Localização'),
+            ('gtin','GTIN/EAN'),
+            ('external_images','URLs Imagens Externas'),
+            ('category','Categoria'),
+            ('department','Departamento'),
+            ('volumes','Volumes'),
+            ('unit_of_measure','Unidade de Medida'),
+            ('expiration_date','Data Validade')
+          ) %}
+            <div class="column is-one-quarter">
+              <label class="label">{{ label }}</label>
+              <div class="select is-fullwidth">
+                <select name="map_{{ field }}">
+                  <option value="">-- Ignorar --</option>
+                  {% for h in headers %}
+                    <option value="{{ h|escape }}">{{ h }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <button class="button is-primary" id="import-btn" name="import" value="1">Importar com mapeamento</button>
+    </form>
+
+    <script>
+      // build mapping JSON from selects into hidden input before submit
+      document.getElementById('import-btn').addEventListener('click', function(e){
+        var mapping = {};
+          var selects = document.querySelectorAll('select[name^="map_"]');
+          selects.forEach(function(s){
+            var key = s.name.replace('map_','');
+            if(s.value) mapping[key] = s.value;
+          });
+          // client-side validation: require price and (code or name)
+          if(!mapping['price'] || (!mapping['code'] && !mapping['name'])){
+            alert('Mapeamento inválido: é necessário mapear o preço (Preço) e pelo menos o código (Código) ou o nome (Descrição).');
+            e.preventDefault();
+            return false;
+          }
+          var hidden = document.querySelector('input[name="mapping_json"]');
+          if(hidden){ hidden.value = JSON.stringify(mapping); }
+      });
+    </script>
+  </div>
+</section>
+{% endblock %}

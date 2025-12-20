@@ -1,0 +1,243 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Configurações de E-mail{% endblock %}
+{% block hero_title %}Configurações{% endblock %}
+{% block hero_subtitle %}Parâmetros para envio e recebimento de mensagens{% endblock %}
+
+{% block content %}
+  {% include 'core/settings_nav.html' with active='email' %}
+  <div class="columns" data-aos="fade-up">
+    <div class="column is-two-thirds">
+      <div class="box">
+        <h2 class="title is-5">Credenciais de e-mail</h2>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="save">
+          {% if form.non_field_errors %}
+            <div class="notification is-danger">
+              {% for error in form.non_field_errors %}{{ error }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+            </div>
+          {% endif %}
+          <h3 class="title is-6">Envio (SMTP)</h3>
+          <div class="field">
+            {{ form.smtp_host.label_tag }}
+            <div class="control">
+              {{ form.smtp_host }}
+            </div>
+            {% if form.smtp_host.errors %}
+              <p class="help is-danger">{{ form.smtp_host.errors.0 }}</p>
+            {% else %}
+              <p class="help">Servidor responsável por enviar os e-mails (ex.: <code>smtp.seudominio.com</code>).</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.smtp_port.label_tag }}
+            <div class="control">
+              {{ form.smtp_port }}
+            </div>
+            {% if form.smtp_port.errors %}
+              <p class="help is-danger">{{ form.smtp_port.errors.0 }}</p>
+            {% else %}
+              <p class="help">Porta utilizada pelo serviço de envio (587 com TLS ou 465 com SSL).</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.smtp_username.label_tag }}
+            <div class="control">
+              {{ form.smtp_username }}
+            </div>
+            {% if form.smtp_username.errors %}
+              <p class="help is-danger">{{ form.smtp_username.errors.0 }}</p>
+            {% else %}
+              <p class="help">Usuário ou conta utilizada no servidor SMTP.</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.smtp_password.label_tag }}
+            <div class="control">
+              {{ form.smtp_password }}
+            </div>
+            {% if form.smtp_password.errors %}
+              <p class="help is-danger">{{ form.smtp_password.errors.0 }}</p>
+            {% else %}
+              <p class="help">Senha ou token de acesso fornecido para o SMTP.</p>
+            {% endif %}
+          </div>
+          <div class="field is-grouped">
+            <div class="control">
+              <label class="checkbox">
+                {{ form.smtp_use_tls }} {{ form.smtp_use_tls.field.label }}
+              </label>
+            </div>
+            <div class="control">
+              <label class="checkbox">
+                {{ form.smtp_use_ssl }} {{ form.smtp_use_ssl.field.label }}
+              </label>
+            </div>
+          </div>
+          {% if form.smtp_use_tls.errors %}
+            <p class="help is-danger">{{ form.smtp_use_tls.errors.0 }}</p>
+          {% elif form.smtp_use_ssl.errors %}
+            <p class="help is-danger">{{ form.smtp_use_ssl.errors.0 }}</p>
+          {% else %}
+            <p class="help">Escolha apenas uma opção de criptografia conforme orientação do provedor.</p>
+          {% endif %}
+          <div class="field" style="margin-top:1.5rem;">
+            {{ form.default_from_email.label_tag }}
+            <div class="control">
+              {{ form.default_from_email }}
+            </div>
+            {% if form.default_from_email.errors %}
+              <p class="help is-danger">{{ form.default_from_email.errors.0 }}</p>
+            {% else %}
+              <p class="help">Endereço que aparecerá como remetente padrão nas mensagens enviadas.</p>
+            {% endif %}
+          </div>
+
+          <hr>
+
+          <h3 class="title is-6">Recebimento</h3>
+          <div class="field">
+            {{ form.incoming_protocol.label_tag }}
+            <div class="control">
+              {{ form.incoming_protocol }}
+            </div>
+            {% if form.incoming_protocol.errors %}
+              <p class="help is-danger">{{ form.incoming_protocol.errors.0 }}</p>
+            {% else %}
+              <p class="help">Escolha IMAP para manter os e-mails no servidor ou POP3 para download.</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.incoming_host.label_tag }}
+            <div class="control">
+              {{ form.incoming_host }}
+            </div>
+            {% if form.incoming_host.errors %}
+              <p class="help is-danger">{{ form.incoming_host.errors.0 }}</p>
+            {% else %}
+              <p class="help">Servidor responsável pelo recebimento (ex.: <code>imap.seudominio.com</code>).</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.incoming_port.label_tag }}
+            <div class="control">
+              {{ form.incoming_port }}
+            </div>
+            {% if form.incoming_port.errors %}
+              <p class="help is-danger">{{ form.incoming_port.errors.0 }}</p>
+            {% else %}
+              <p class="help">Porta padrão: 993 para IMAP com SSL ou 995 para POP3 com SSL.</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.incoming_username.label_tag }}
+            <div class="control">
+              {{ form.incoming_username }}
+            </div>
+            {% if form.incoming_username.errors %}
+              <p class="help is-danger">{{ form.incoming_username.errors.0 }}</p>
+            {% else %}
+              <p class="help">Usuário configurado para acessar a caixa de entrada.</p>
+            {% endif %}
+          </div>
+          <div class="field">
+            {{ form.incoming_password.label_tag }}
+            <div class="control">
+              {{ form.incoming_password }}
+            </div>
+            {% if form.incoming_password.errors %}
+              <p class="help is-danger">{{ form.incoming_password.errors.0 }}</p>
+            {% else %}
+              <p class="help">Senha ou token utilizado para leitura dos e-mails.</p>
+            {% endif %}
+          </div>
+          <div class="field is-grouped">
+            <div class="control">
+              <label class="checkbox">
+                {{ form.incoming_use_ssl }} {{ form.incoming_use_ssl.field.label }}
+              </label>
+            </div>
+            <div class="control">
+              <label class="checkbox">
+                {{ form.incoming_use_tls }} {{ form.incoming_use_tls.field.label }}
+              </label>
+            </div>
+          </div>
+          {% if form.incoming_use_ssl.errors %}
+            <p class="help is-danger">{{ form.incoming_use_ssl.errors.0 }}</p>
+          {% elif form.incoming_use_tls.errors %}
+            <p class="help is-danger">{{ form.incoming_use_tls.errors.0 }}</p>
+          {% else %}
+            <p class="help">Use SSL/TLS para conexões seguras ou STARTTLS quando o provedor instruir.</p>
+          {% endif %}
+          <div class="field is-grouped is-justify-content-flex-end" style="margin-top:2rem;">
+            <div class="control">
+              <button class="button is-primary" type="submit">Salvar configurações</button>
+            </div>
+          </div>
+        </form>
+      </div>
+      <div class="box" style="margin-top: 1.5rem;">
+        <h2 class="title is-5">Teste rápido</h2>
+        <form method="post">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="test">
+          {% if test_form.non_field_errors %}
+            <div class="notification is-danger">
+              {% for error in test_form.non_field_errors %}{{ error }}{% if not forloop.last %}<br>{% endif %}{% endfor %}
+            </div>
+          {% endif %}
+          <div class="field">
+            {{ test_form.recipient.label_tag }}
+            <div class="control">
+              {{ test_form.recipient }}
+            </div>
+            {% if test_form.recipient.errors %}
+              <p class="help is-danger">{{ test_form.recipient.errors.0 }}</p>
+            {% else %}
+              <p class="help">O sistema enviará um e-mail curto para validar as credenciais acima.</p>
+            {% endif %}
+          </div>
+          <div class="field is-grouped is-justify-content-flex-end">
+            <div class="control">
+              <button class="button is-link" type="submit">Enviar e-mail de teste</button>
+            </div>
+          </div>
+        </form>
+      </div>
+    </div>
+    <div class="column">
+      <div class="box">
+        <h3 class="title is-6">Status</h3>
+        <p>
+          <strong>Envio:</strong>
+          {% if config.smtp_host and config.smtp_username %}
+            <span class="tag is-success is-light">Configurado</span>
+          {% else %}
+            <span class="tag is-warning is-light">Pendente</span>
+          {% endif %}
+        </p>
+        <p style="margin-top:0.5rem;">
+          <strong>Recebimento:</strong>
+          {% if config.incoming_host and config.incoming_username %}
+            <span class="tag is-success is-light">Configurado</span>
+          {% else %}
+            <span class="tag is-warning is-light">Pendente</span>
+          {% endif %}
+        </p>
+        <p class="small text-muted" style="margin-top:0.75rem;">
+          Última atualização em {{ config.updated_at }}{% if config.updated_by %} por {{ config.updated_by.get_full_name|default:config.updated_by.username }}{% endif %}.
+        </p>
+      </div>
+      <div class="box">
+        <h3 class="title is-6">Dicas rápidas</h3>
+        <ul class="small text-muted" style="list-style:disc; padding-left:1.1rem;">
+          <li>Ative apenas uma opção de criptografia (TLS ou SSL) para envio e recebimento.</li>
+          <li>Utilize senhas de aplicativo quando seu provedor exigir autenticação em dois fatores.</li>
+          <li>Defina o remetente padrão para personalizar os e-mails enviados pelo sistema.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+{% endblock %}

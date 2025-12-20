@@ -1,0 +1,429 @@
+{% extends 'core/base.html' %}
+{% load static %}
+
+{% block title %}Emissão de Pré-Venda{% endblock %}
+{% block hero_title %}Emissão de Pré-Venda{% endblock %}
+{% block hero_subtitle %}Siga o fluxo tradicional para registrar a pré-venda, revisando cliente, condições e itens antes de gravar.{% endblock %}
+
+{% block content %}
+  <form method="post" class="sales-form" novalidate>
+    {% csrf_token %}
+    {{ formset.management_form }}
+
+    {% if form.non_field_errors %}
+      <div class="notification is-danger">
+        {{ form.non_field_errors|join:', ' }}
+      </div>
+    {% endif %}
+    {% if formset.non_form_errors %}
+      <div class="notification is-danger">
+        {{ formset.non_form_errors|join:', ' }}
+      </div>
+    {% endif %}
+
+    <div class="sales-workspace">
+      <aside class="sales-sidebar" aria-labelledby="recent-drafts-heading" data-drafts-panel>
+        <header class="sales-sidebar-header">
+          <h2 id="recent-drafts-heading">Esboços recentes</h2>
+          <button class="button is-text is-small drafts-toggle" type="button" data-drafts-toggle aria-expanded="true">
+            <span class="icon" data-lucide="chevron-left"></span>
+            <span data-toggle-label>Ocultar esboços</span>
+          </button>
+        </header>
+        <ul class="sales-sidebar-list">
+          {% for draft in recent_drafts %}
+            <li>
+              <div class="draft-header">
+                <span class="draft-code">{{ draft.number|default:'—' }}</span>
+                <span class="draft-total">{{ draft.total_amount|floatformat:2 }}</span>
+              </div>
+              <p class="small text-muted">Pressione F2 ou clique na lupa para localizar clientes rapidamente.</p>
+              <div class="draft-meta">
+                <span>{{ draft.client }}</span>
+                <span>{{ draft.updated_at|date:"d/m/Y" }}</span>
+              </div>
+            </li>
+          {% empty %}
+            <li class="sales-empty">&lt;Nenhum esboço disponível&gt;</li>
+          {% endfor %}
+        </ul>
+        <p class="small text-muted">Retome rapidamente orçamentos ainda não finalizados.</p>
+      </aside>
+
+      <section class="sales-main">
+        <section class="sales-top-meta">
+          <div class="sales-meta-grid">
+            <div class="meta-field">
+              <span class="label">Número da Proposta</span>
+              <span
+                class="value quote-number-display{% if not quote.number %} is-awaiting-number{% endif %}"
+                data-quote-number-display
+                data-number-pending="{{ next_quote_number|default_if_none:'' }}"{% if quote.number %} data-number-fixed="true"{% endif %}
+              >{{ quote.number|default:'—' }}</span>
+            </div>
+            <div class="meta-field">
+              <span class="label">Emissão</span>
+              <span class="value">
+                {% if quote.pk %}
+                  {{ quote.created_at|date:"d/m/Y" }}
+                {% else %}
+                  {{ today|date:"d/m/Y" }}
+                {% endif %}
+              </span>
+            </div>
+            <div class="meta-field">
+              <span class="label">Última alteração</span>
+              <span class="value">
+                {% if quote.pk %}
+                  {{ quote.updated_at|date:"d/m/Y" }}
+                {% else %}
+                  —
+                {% endif %}
+              </span>
+            </div>
+            <div class="meta-field">
+              <label class="label" for="{{ form.valid_until.id_for_label }}">Vencimento</label>
+              {{ form.valid_until }}
+              {% if form.valid_until.errors %}
+                <p class="help is-danger">{{ form.valid_until.errors.0 }}</p>
+              {% endif %}
+            </div>
+            <div class="meta-field">
+              <label class="label" for="{{ form.status.id_for_label }}">Status</label>
+              {{ form.status }}
+            </div>
+            </div>
+          <div class="sales-meta-grid">
+            <div class="meta-field meta-wide">
+              <label class="label" for="{{ form.client.id_for_label }}">Cliente</label>
+              <div class="field has-addons lookup-field" data-lookup-scope="clients">
+                <div class="control is-expanded">
+                  {{ form.client }}
+                </div>
+                <div class="control">
+                  <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="clients" aria-label="Buscar cliente (F2)">
+                    <span class="icon" data-lucide="search"></span>
+                  </button>
+                </div>
+              </div>
+              {% if form.client.errors %}
+                <p class="help is-danger">{{ form.client.errors.0 }}</p>
+              {% endif %}
+            </div>
+            <div class="meta-field">
+              <label class="label" for="{{ form.salesperson.id_for_label }}">Vendedor responsável</label>
+              <div class="control is-expanded">
+                {{ form.salesperson }}
+              </div>
+              {% if form.salesperson.errors %}
+                <p class="help is-danger">{{ form.salesperson.errors.0 }}</p>
+              {% else %}
+                <p class="help">Sugerido com base no usuário conectado.</p>
+              {% endif %}
+            </div>
+            <div class="meta-field meta-wide">
+              <label class="label" for="{{ form.notes.id_for_label }}">Observações / informações complementares</label>
+              {{ form.notes }}
+            </div>
+            <div class="meta-highlight">
+              {% if quote.status == 'draft' or not quote.pk %}
+                <span class="badge badge-draft">ESBOÇO</span>
+              {% else %}
+                <span class="badge badge-status">{{ quote.get_status_display }}</span>
+              {% endif %}
+              <p class="small text-muted">Grave o orçamento para finalizar a pré-venda e liberar a impressão.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="sales-items-card" aria-labelledby="sales-items-heading">
+          <header class="sales-card-header">
+            <div>
+              <h2 id="sales-items-heading">Produtos</h2>
+              <p class="small text-muted">Busque o produto (F2 ou lupa) e ajuste quantidade e descontos diretamente na grade.</p>
+            </div>
+            <div class="sales-actions">
+              <a class="button is-light" href="{% url 'sales:quote_list' %}">Cancelar</a>
+              <button class="button is-primary" type="submit">Gravar orçamento</button>
+            </div>
+          </header>
+
+          <div class="sales-items-body" data-items-container>
+            <div class="table-scroll">
+            <table class="sales-items-table" data-product-lookup-url="{% url 'sales:quote_product_lookup' %}" data-form-prefix="{{ formset.prefix }}">
+              <thead>
+                <tr>
+                  <th style="width: 70px;">Item</th>
+                  <th style="min-width: 320px;">Produto</th>
+                  <th style="width: 90px;">Unidade</th>
+                  <th style="width: 120px;">Quantidade</th>
+                  <th style="width: 150px;">Entrega (dias)</th>
+                  <th style="width: 140px;">Valor unitário</th>
+                  <th style="width: 140px;">Desconto</th>
+                  <th style="width: 140px;">Total</th>
+                  <th style="width: 110px;">Lucro</th>
+                  <th style="width: 150px;">Ações</th>
+                </tr>
+              </thead>
+              <tbody data-quote-items-body>
+                {% for item_form in formset.forms %}
+                  {% with existing_product=item_form.instance.product %}
+                  <tr class="sales-item-row" data-row-index="{{ forloop.counter0 }}" data-cost-price="{% if existing_product %}{{ existing_product.cost_price|default_if_none:'' }}{% endif %}">
+                    <td class="col-index" data-label="Item">
+                      <span class="item-index-badge" data-item-index>{{ forloop.counter }}</span>
+                    </td>
+                    <td data-label="Produto" class="col-product">
+                      {{ item_form.id }}
+                      {{ item_form.sort_order.as_hidden }}
+                      {{ item_form.description }}
+                      <div class="product-search-wrapper">
+                        <div class="field has-addons lookup-field" data-lookup-scope="products">
+                          <div class="control is-expanded">
+                            <input type="search" class="input product-search-input" placeholder="Buscar por código, nome ou GTIN" autocomplete="off" data-product-search-input data-lookup-type="products" data-row-index="{{ forloop.counter0 }}">
+                          </div>
+                          <div class="control">
+                            <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="products" aria-label="Buscar produto (F2)" tabindex="-1">
+                              <span class="icon" data-lucide="search"></span>
+                            </button>
+                          </div>
+                        </div>
+                        <div class="product-search-results" data-product-search-results hidden></div>
+                      </div>
+                      <div class="product-name-display" data-product-name-display hidden></div>
+                      {{ item_form.product }}
+                      {% if item_form.product.errors %}
+                        <p class="help is-danger">{{ item_form.product.errors.0 }}</p>
+                      {% endif %}
+                    </td>
+                    <td class="col-unit" data-label="Unidade">
+                      <span class="unit-text">
+                        {% if item_form.metrics and item_form.metrics.unit %}
+                          {{ item_form.metrics.unit }}
+                        {% elif existing_product and existing_product.unit %}
+                          {{ existing_product.unit }}
+                        {% else %}
+                          —
+                        {% endif %}
+                      </span>
+                    </td>
+                    <td data-label="Quantidade">
+                      {{ item_form.quantity }}
+                      {% if item_form.quantity.errors %}
+                        <p class="help is-danger">{{ item_form.quantity.errors.0 }}</p>
+                      {% endif %}
+                    </td>
+                    <td data-label="Entrega (dias)">
+                      {{ item_form.delivery_days }}
+                      {% if item_form.delivery_days.errors %}
+                        <p class="help is-danger">{{ item_form.delivery_days.errors.0 }}</p>
+                      {% endif %}
+                    </td>
+                    <td data-label="Valor unitário">
+                      {{ item_form.unit_price }}
+                      {% if item_form.unit_price.errors %}
+                        <p class="help is-danger">{{ item_form.unit_price.errors.0 }}</p>
+                      {% endif %}
+                    </td>
+                    <td data-label="Desconto">
+                      <div class="input-stack">
+                        <div class="discount-input-control">
+                          {{ item_form.discount }}
+                          <button type="button" class="button is-light is-small discount-edit-button" data-discount-toggle aria-label="Editar desconto" aria-pressed="false" title="Editar desconto">
+                            <span class="icon" data-lucide="edit-2"></span>
+                          </button>
+                        </div>
+                        {% if item_form.metrics %}
+                          {% with discount_percent=item_form.metrics.discount_percent %}
+                            <span class="subvalue discount-percent{% if discount_percent is None %} placeholder{% endif %}" data-discount-percent="{% if discount_percent is not None %}{{ discount_percent }}{% endif %}">
+                              {% if discount_percent is not None %}
+                                {{ discount_percent|floatformat:2 }}%
+                              {% else %}
+                                —
+                              {% endif %}
+                            </span>
+                          {% endwith %}
+                        {% else %}
+                          <span class="subvalue discount-percent placeholder" data-discount-percent>—</span>
+                        {% endif %}
+                      </div>
+                      {% if item_form.discount.errors %}
+                        <p class="help is-danger">{{ item_form.discount.errors.0 }}</p>
+                      {% endif %}
+                    </td>
+                    {% with line_total=item_form.instance.total_amount %}
+                      <td class="col-total" data-label="Total">
+                        <span class="line-total{% if not line_total %} placeholder{% endif %}" data-line-total="{% if line_total %}{{ line_total }}{% endif %}">
+                          {{ line_total|default_if_none:0|floatformat:2 }}
+                        </span>
+                      </td>
+                    {% endwith %}
+                    {% if item_form.metrics %}
+                      {% with margin_value=item_form.metrics.margin_percent %}
+                        <td class="col-margin" data-label="Lucro">
+                          <span class="line-margin{% if margin_value is None %} placeholder{% elif margin_value < 0 %} is-negative{% endif %}" data-line-margin="{% if margin_value is not None %}{{ margin_value }}{% endif %}">
+                            {% if margin_value is not None %}
+                              {{ margin_value|floatformat:2 }}%
+                            {% else %}
+                              —
+                            {% endif %}
+                          </span>
+                        </td>
+                      {% endwith %}
+                    {% else %}
+                      <td class="col-margin" data-label="Lucro">
+                        <span class="line-margin placeholder" data-line-margin>—</span>
+                      </td>
+                    {% endif %}
+                    <td class="col-actions" data-label="Ações">
+                      <div class="buttons are-small">
+                        <button type="button" class="button is-primary is-light" data-action="next-row">Próxima linha</button>
+                        <button type="button" class="button is-light" data-action="edit-item">Editar</button>
+                        {% if sales_permissions.delete %}
+                          <button type="button" class="button is-danger is-light" data-action="delete-item">Excluir</button>
+                          <span class="delete-input-wrapper" style="display: none;">
+                            {{ item_form.DELETE }}
+                          </span>
+                        {% endif %}
+                      </div>
+                    </td>
+                  </tr>
+                  {% if item_form.non_field_errors %}
+                    <tr>
+                      <td colspan="9">
+                        <p class="help is-danger">{{ item_form.non_field_errors|join:', ' }}</p>
+                      </td>
+                    </tr>
+                  {% endif %}
+                  {% endwith %}
+                {% endfor %}
+              </tbody>
+            </table>
+            <template id="quote-item-row-template">
+              {% with item_form=formset.empty_form %}
+                <tr class="sales-item-row" data-row-index="__prefix__">
+                  <td class="col-index" data-label="Item">
+                    <span class="item-index-badge" data-item-index>—</span>
+                  </td>
+                  <td data-label="Produto" class="col-product">
+                    {{ item_form.id }}
+                    {{ item_form.sort_order.as_hidden }}
+                    {{ item_form.description }}
+                    <div class="product-search-wrapper">
+                      <div class="field has-addons lookup-field" data-lookup-scope="products">
+                        <div class="control is-expanded">
+                          <input type="search" class="input product-search-input" placeholder="Buscar por código, nome ou GTIN" autocomplete="off" data-product-search-input data-lookup-type="products" data-row-index="__prefix__">
+                        </div>
+                        <div class="control">
+                          <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="products" aria-label="Buscar produto (F2)" tabindex="-1">
+                            <span class="icon" data-lucide="search"></span>
+                          </button>
+                        </div>
+                      </div>
+                      <div class="product-search-results" data-product-search-results hidden></div>
+                    </div>
+                    <div class="product-name-display" data-product-name-display hidden></div>
+                    {{ item_form.product }}
+                  </td>
+                  <td class="col-unit" data-label="Unidade">
+                    <span class="unit-text">—</span>
+                  </td>
+                  <td data-label="Quantidade">
+                    {{ item_form.quantity }}
+                  </td>
+                  <td data-label="Entrega (dias)">
+                    {{ item_form.delivery_days }}
+                  </td>
+                  <td data-label="Valor unitário">
+                    {{ item_form.unit_price }}
+                  </td>
+                  <td data-label="Desconto">
+                    <div class="input-stack">
+                      <div class="discount-input-control">
+                        {{ item_form.discount }}
+                        <button type="button" class="button is-light is-small discount-edit-button" data-discount-toggle aria-label="Editar desconto" aria-pressed="false" title="Editar desconto">
+                          <span class="icon" data-lucide="edit-2"></span>
+                        </button>
+                      </div>
+                      <span class="subvalue discount-percent placeholder" data-discount-percent>—</span>
+                    </div>
+                  </td>
+                  <td class="col-total" data-label="Total">
+                    <span class="line-total placeholder" data-line-total>0,00</span>
+                  </td>
+                  <td class="col-margin" data-label="Lucro">
+                    <span class="line-margin placeholder" data-line-margin>—</span>
+                  </td>
+                  <td class="col-actions" data-label="Ações">
+                    <div class="buttons are-small">
+                      <button type="button" class="button is-primary is-light" data-action="next-row">Próxima linha</button>
+                      <button type="button" class="button is-light" data-action="edit-item">Editar</button>
+                      {% if sales_permissions.delete %}
+                        <button type="button" class="button is-danger is-light" data-action="delete-item">Excluir</button>
+                        <span class="delete-input-wrapper" style="display: none;">
+                          {{ item_form.DELETE }}
+                        </span>
+                      {% endif %}
+                    </div>
+                  </td>
+                </tr>
+              {% endwith %}
+            </template>
+          </div>
+          <div class="sales-add-row">
+            <button type="button" class="button is-light" data-action="add-item-row">Adicionar item (Alt+Z)</button>
+            <p class="small text-muted">Clique no botão ou use Alt+Z para abrir uma nova linha de produto.</p>
+          </div>
+          <footer class="sales-summary">
+            <div class="summary-grid">
+              <div>
+                <span class="label">Quantidade total</span>
+                <strong class="summary-value" data-summary="quantity">{{ quote_summary.total_quantity|default_if_none:0|floatformat:2 }}</strong>
+              </div>
+              <div>
+                <span class="label">Desconto total</span>
+                <strong class="summary-value" data-summary="discount">{{ quote_summary.total_discount|default_if_none:0|floatformat:2 }}</strong>
+                <span class="subvalue summary-discount-percent{% if not quote_summary.has_discount_percent %} placeholder{% endif %}" data-summary-discount-percent>
+                  {% if quote_summary.has_discount_percent %}
+                    {{ quote_summary.discount_percent|floatformat:2 }}%
+                  {% else %}
+                    —
+                  {% endif %}
+                </span>
+              </div>
+              <div>
+                <span class="label">Valor bruto</span>
+                <strong class="summary-value" data-summary="gross">{{ quote_summary.gross_total|default_if_none:0|floatformat:2 }}</strong>
+              </div>
+              <div>
+                <span class="label">Valor líquido</span>
+                <strong class="summary-value" data-summary="net">{{ quote_summary.net_total|default_if_none:0|floatformat:2 }}</strong>
+              </div>
+              <div>
+                <span class="label">Lucro médio</span>
+                <strong class="summary-value{% if quote_summary.has_margin and quote_summary.overall_margin < 0 %} is-negative{% endif %}{% if not quote_summary.has_margin %} placeholder{% endif %}" data-summary="margin">
+                  {% if quote_summary.has_margin %}
+                    {{ quote_summary.overall_margin|floatformat:2 }}%
+                  {% else %}
+                    —
+                  {% endif %}
+                </strong>
+              </div>
+            </div>
+          </footer>
+          </div>
+          <div class="sales-items-blocker"{% if form.client.value %} hidden{% endif %} data-items-blocker>
+            <div class="blocker-content">
+              <span class="icon" data-lucide="user"></span>
+              <p>Selecione um cliente para lançar itens no orçamento.</p>
+            </div>
+          </div>
+        </section>
+      </section>
+    </div>
+  </form>
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  <script src="{% static 'js/sales_quote.js' %}"></script>
+{% endblock %}

@@ -1,12 +1,380 @@
 {% extends 'core/base.html' %}
 
 {% block title %}Formulário de Produto{% endblock %}
+{% block hero_title %}{% if product %}Editar{% else %}Criar{% endif %} Produto{% endblock %}
+{% block hero_subtitle %}Preencha os dados principais e logísticos para o catálogo.{% endblock %}
+{% block hero_actions %}
+  <a class="button is-secondary" href="{% url 'products:index' %}">Voltar</a>
+  <button class="button is-primary" type="submit" form="product-form">Salvar produto</button>
+{% endblock %}
 
 {% block content %}
-  <h1 class="title">{% if product %}Editar{% else %}Criar{% endif %} Produto</h1>
-  <form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-  <button class="button is-primary" type="submit">Salvar</button>
-  </form>
+  <div class="box data-card" data-aos="fade-up">
+    <form id="product-form" method="post" enctype="multipart/form-data">
+      {% csrf_token %}
+      <div class="form-grid">
+        <section class="form-section">
+          <h2>Informações principais</h2>
+          <div class="field-grid">
+            <div class="form-field">
+              {{ form.name.label_tag }}
+              {{ form.name }}
+            </div>
+            <div class="form-field">
+              {{ form.code.label_tag }}
+              {{ form.code }}
+            </div>
+            <div class="form-field">
+              {{ form.reference.label_tag }}
+              {{ form.reference }}
+            </div>
+            <div class="form-field">
+              {{ form.description.label_tag }}
+              {{ form.description }}
+            </div>
+            <div class="form-field">
+              {{ form.short_description.label_tag }}
+              {{ form.short_description }}
+            </div>
+            <div class="form-field two-column">
+              <div>
+                {{ form.lifecycle_start_date.label_tag }}
+                {{ form.lifecycle_start_date }}
+              </div>
+              <div>
+                {{ form.lifecycle_end_date.label_tag }}
+                {{ form.lifecycle_end_date }}
+              </div>
+            </div>
+            <p class="small text-muted">Sem data final, o produto permanece ativo. Quando a data final for hoje ou passada, ele será considerado fora de linha.</p>
+            <div class="form-field two-column">
+              <div>
+                {{ form.price.label_tag }}
+                {{ form.price }}
+              </div>
+              <div>
+                {{ form.cost_price.label_tag }}
+                {{ form.cost_price }}
+              </div>
+            </div>
+            <div class="form-field">
+              {{ form.companies.label_tag }}
+              {{ form.companies }}
+              <p class="small text-muted">Marque as empresas que podem comercializar este produto.</p>
+            </div>
+            <div class="form-field">
+              <label class="label">Imagens</label>
+              {{ form.images }}
+              <p class="small text-muted">Selecione múltiplos arquivos ou informe URLs externas.</p>
+            </div>
+            {% if product %}
+              <div class="form-field">
+                <label class="label">Miniaturas</label>
+                <div class="thumbnail-grid">
+                  {% for img in product.images.all %}
+                    {% if img.image %}
+                      <div class="thumbnail" data-img-id="{{ img.pk }}">
+                        <img src="{{ img.image.url }}" alt="Imagem do produto" data-src="{{ img.image.url }}" onclick="openImageModal(this.dataset.src)">
+                        <form method="post" action="{% url 'products:delete_image' img.pk %}" style="position:absolute; top:6px; right:6px;">
+                          {% csrf_token %}
+                          <button class="button is-small is-danger" type="submit" title="Remover imagem">×</button>
+                        </form>
+                      </div>
+                    {% elif img.url %}
+                      <div class="thumbnail">
+                        <img src="{{ img.url }}" alt="Imagem externa">
+                      </div>
+                    {% endif %}
+                  {% empty %}
+                    <div class="small text-muted">Nenhuma imagem enviada.</div>
+                  {% endfor %}
+
+                  {% if external_images_list %}
+                    {% for src in external_images_list %}
+                      <div class="thumbnail">
+                        <img src="{{ src }}" alt="Imagem externa" data-src="{{ src }}" onclick="openImageModal(this.dataset.src)">
+                      </div>
+                    {% endfor %}
+                  {% endif %}
+                </div>
+              </div>
+            {% endif %}
+          </div>
+        </section>
+        <section class="form-section">
+          <h2>Estoque & logística</h2>
+          <div class="field-grid">
+            <div class="form-field">
+              {{ form.stock.label_tag }}
+              {{ form.stock }}
+              <p class="small text-muted">Informe valores fracionados usando vírgula, ex.: 0,50.</p>
+            </div>
+            <div class="form-field">
+              <label class="checkbox">
+                {{ form.allow_fractional_sale }}
+                <span>{{ form.allow_fractional_sale.label }}</span>
+              </label>
+              <p class="small text-muted">Marque quando o produto puder ser vendido em frações da unidade padrão.</p>
+            </div>
+            <div class="form-field">
+              {{ form.unit.label_tag }}
+              {{ form.unit }}
+            </div>
+            <div class="form-field">
+              {{ form.ncm.label_tag }}
+              {{ form.ncm }}
+            </div>
+            <div class="form-field">
+              {{ form.location.label_tag }}
+              {{ form.location }}
+            </div>
+            <div class="form-field">
+              {{ form.product_group.label_tag }}
+              <div class="field has-addons lookup-field" data-lookup-scope="product_groups">
+                <div class="control is-expanded">
+                  {{ form.product_group }}
+                </div>
+                <div class="control">
+                  <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="product_groups" aria-label="Buscar grupo de produtos (F2)">
+                    <span class="icon" data-lucide="search"></span>
+                  </button>
+                </div>
+              </div>
+              <p class="small text-muted">Utilize F2 ou a lupa para localizar grupos já cadastrados.</p>
+            </div>
+            <div class="form-field">
+              {{ form.product_subgroup.label_tag }}
+              <div class="field has-addons lookup-field" data-lookup-scope="product_subgroups">
+                <div class="control is-expanded">
+                  {{ form.product_subgroup }}
+                </div>
+                <div class="control">
+                  <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="product_subgroups" aria-label="Buscar subgrupo de produtos (F2)">
+                    <span class="icon" data-lucide="search"></span>
+                  </button>
+                </div>
+              </div>
+              <p class="small text-muted">Filtre subgrupos com F2, inclusive por hierarquia.</p>
+            </div>
+            <div class="form-field">
+              {{ form.supplier_code.label_tag }}
+              {{ form.supplier_code }}
+            </div>
+            <div class="form-field">
+              {{ form.supplier.label_tag }}
+              {{ form.supplier }}
+            </div>
+            <div class="form-field">
+              {{ form.supplier_obj.label_tag }}
+              <div class="field has-addons lookup-field" data-lookup-scope="suppliers">
+                <div class="control is-expanded">
+                  {{ form.supplier_obj }}
+                </div>
+                <div class="control">
+                  <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="suppliers" aria-label="Buscar fornecedor cadastrado (F2)">
+                    <span class="icon" data-lucide="search"></span>
+                  </button>
+                </div>
+              </div>
+              <p class="small text-muted">Vincule ao cadastro oficial para integrar catálogos e negociações.</p>
+            </div>
+            <div class="form-field">
+              {{ form.gtin.label_tag }}
+              {{ form.gtin }}
+            </div>
+            <div class="form-field">
+              {{ form.external_link.label_tag }}
+              {{ form.external_link }}
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <section class="form-section" style="margin-top:1.8rem;">
+        <h2>Estoque por empresa</h2>
+        <p class="small text-muted">Utilize esta tabela para definir o estoque individual por empresa. O estoque total é calculado automaticamente.</p>
+        {% if stock_formset %}
+          {{ stock_formset.management_form }}
+          {% if stock_formset.non_form_errors %}
+            <div class="notification is-danger">
+              {% for error in stock_formset.non_form_errors %}{{ error }}<br>{% endfor %}
+            </div>
+          {% endif %}
+          <table class="table is-fullwidth is-hoverable">
+            <thead>
+              <tr>
+                <th style="width:35%">Empresa</th>
+                <th style="width:20%">Quantidade</th>
+                <th style="width:20%">Estoque mínimo</th>
+                <th style="width:20%">Estoque máximo</th>
+                <th style="width:5%">Remover</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for stock_form in stock_formset.forms %}
+                {% if stock_form.non_field_errors %}
+                  <tr>
+                    <td colspan="5">
+                      <div class="notification is-danger is-light">
+                        {% for error in stock_form.non_field_errors %}{{ error }}<br>{% endfor %}
+                      </div>
+                    </td>
+                  </tr>
+                {% endif %}
+                <tr>
+                  <td>
+                    {% for hidden in stock_form.hidden_fields %}{{ hidden }}{% endfor %}
+                    {{ stock_form.company.errors }}
+                    {{ stock_form.company }}
+                  </td>
+                  <td>
+                    {{ stock_form.quantity.errors }}
+                    {{ stock_form.quantity }}
+                  </td>
+                  <td>
+                    {{ stock_form.min_quantity.errors }}
+                    {{ stock_form.min_quantity }}
+                  </td>
+                  <td>
+                    {{ stock_form.max_quantity.errors }}
+                    {{ stock_form.max_quantity }}
+                  </td>
+                  <td class="has-text-centered">
+                    {% if stock_form.instance.pk %}
+                      <label class="checkbox">
+                        {{ stock_form.DELETE }}
+                        <span class="small text-muted">Remover</span>
+                      </label>
+                    {% else %}
+                      {{ stock_form.DELETE }}
+                    {% endif %}
+                  </td>
+                </tr>
+              {% empty %}
+                <tr><td colspan="5">Nenhuma empresa associada. Utilize as linhas vazias para adicionar.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+          <p class="small text-muted">Linhas adicionais podem ser deixadas em branco. Para excluir um vínculo existente, marque "Remover".</p>
+        {% endif %}
+      </section>
+
+      <section class="form-section" style="margin-top:1.8rem;">
+        <h2>Formação de preço</h2>
+        <p class="small text-muted">Registre os parâmetros utilizados para compor o preço de venda conforme seu método financeiro.</p>
+        <div class="field-grid two-column">
+          <div class="form-field">
+            {{ form.pricing_base_cost.label_tag }}
+            {{ form.pricing_base_cost }}
+          </div>
+          <div class="form-field">
+            {{ form.pricing_variable_expense_percent.label_tag }}
+            {{ form.pricing_variable_expense_percent }}
+          </div>
+          <div class="form-field">
+            {{ form.pricing_fixed_expense_percent.label_tag }}
+            {{ form.pricing_fixed_expense_percent }}
+          </div>
+          <div class="form-field">
+            {{ form.pricing_tax_percent.label_tag }}
+            {{ form.pricing_tax_percent }}
+          </div>
+          <div class="form-field">
+            {{ form.pricing_desired_margin_percent.label_tag }}
+            {{ form.pricing_desired_margin_percent }}
+          </div>
+          <div class="form-field">
+            {{ form.pricing_markup_factor.label_tag }}
+            {{ form.pricing_markup_factor }}
+          </div>
+          <div class="form-field">
+            {{ form.pricing_suggested_price.label_tag }}
+            {{ form.pricing_suggested_price }}
+          </div>
+        </div>
+      </section>
+
+      <section class="form-section" style="margin-top:1.8rem;">
+        <h2>Detalhes adicionais</h2>
+        <div class="field-grid two-column">
+          <div class="form-field">
+            {{ form.brand_obj.label_tag }}
+            <div class="field has-addons lookup-field" data-lookup-scope="brands">
+              <div class="control is-expanded">
+                {{ form.brand_obj }}
+              </div>
+              <div class="control">
+                <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="brands" aria-label="Buscar marca (F2)">
+                  <span class="icon" data-lucide="search"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="form-field">
+            {{ form.category_obj.label_tag }}
+            <div class="field has-addons lookup-field" data-lookup-scope="categories">
+              <div class="control is-expanded">
+                {{ form.category_obj }}
+              </div>
+              <div class="control">
+                <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="categories" aria-label="Buscar categoria (F2)">
+                  <span class="icon" data-lucide="search"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="form-field">
+            {{ form.department_obj.label_tag }}
+            <div class="field has-addons lookup-field" data-lookup-scope="departments">
+              <div class="control is-expanded">
+                {{ form.department_obj }}
+              </div>
+              <div class="control">
+                <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="departments" aria-label="Buscar departamento (F2)">
+                  <span class="icon" data-lucide="search"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="form-field">
+            {{ form.volumes_obj.label_tag }}
+            <div class="field has-addons lookup-field" data-lookup-scope="volumes">
+              <div class="control is-expanded">
+                {{ form.volumes_obj }}
+              </div>
+              <div class="control">
+                <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="volumes" aria-label="Buscar volume (F2)">
+                  <span class="icon" data-lucide="search"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="form-field">
+            {{ form.unit_of_measure_obj.label_tag }}
+            <div class="field has-addons lookup-field" data-lookup-scope="units">
+              <div class="control is-expanded">
+                {{ form.unit_of_measure_obj }}
+              </div>
+              <div class="control">
+                <button class="button is-light lookup-trigger" type="button" data-lookup-trigger data-lookup-type="units" aria-label="Buscar unidade de medida (F2)">
+                  <span class="icon" data-lucide="search"></span>
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="form-field">
+            {{ form.external_images.label_tag }}
+            {{ form.external_images }}
+          </div>
+          <div class="form-field" style="grid-column:1/-1;">
+            {{ form.additional_info.label_tag }}
+            {{ form.additional_info }}
+          </div>
+        </div>
+      </section>
+      <div class="form-actions">
+        <button class="button is-primary" type="submit">Salvar</button>
+      </div>
+    </form>
+  </div>
 {% endblock %}

@@ -1,0 +1,73 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Pedidos{% endblock %}
+{% block hero_title %}Pedidos{% endblock %}
+{% block hero_subtitle %}Controle de pedidos de venda{% endblock %}
+
+{% block content %}
+  <div class="level">
+    <div class="level-left">
+      <h1 class="title" style="margin:0">Pedidos</h1>
+    </div>
+    <div class="level-right">
+      <div class="buttons">
+      </div>
+    </div>
+  </div>
+
+  <form method="get" class="box" style="padding:0.9rem 1rem;">
+    <div class="columns is-vcentered is-mobile">
+      <div class="column is-two-thirds">
+        <div class="field has-addons is-fullwidth">
+          <div class="control is-expanded has-icons-left">
+            <input class="input" type="search" name="q" placeholder="Buscar por número ou cliente" value="{{ filters.q }}">
+            <span class="icon is-left">🔎</span>
+          </div>
+          <div class="control"><button class="button is-primary" type="submit">Filtrar</button></div>
+          <div class="control"><a class="button" href="{% url 'sales:order_list' %}">Limpar</a></div>
+        </div>
+      </div>
+      <div class="column">
+        <div class="field">
+          <div class="select is-fullwidth">
+            <select name="status" onchange="this.form.submit()">
+              <option value="">Status (todos)</option>
+              {% for key,label in status_choices %}
+                <option value="{{ key }}" {% if filters.status == key %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+  </form>
+
+  <table class="table is-fullwidth is-hoverable">
+    <thead>
+      <tr>
+        <th>Número</th>
+        <th>Cliente</th>
+        <th>Emissão</th>
+        <th>Status</th>
+        <th>Total</th>
+        <th>Orçamento</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for order in orders %}
+      <tr>
+        <td><strong><a href="{% url 'sales:order_detail' order.pk %}">{{ order.number }}</a></strong></td>
+        <td>{{ order.client }}</td>
+        <td>{{ order.issue_date|date:"d/m/Y" }}</td>
+        <td><span class="tag is-light">{{ order.get_status_display }}</span></td>
+        <td>R$ {{ order.total_amount|floatformat:2 }}</td>
+        <td>{% if order.quote %}<a href="{% url 'sales:quote_detail' order.quote.pk %}">{{ order.quote.number }}</a>{% else %}—{% endif %}</td>
+        <td class="has-text-right"></td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="7">Nenhum pedido encontrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+{% endblock %}

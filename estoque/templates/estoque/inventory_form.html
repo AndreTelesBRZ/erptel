@@ -1,0 +1,92 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Novo Inventário{% endblock %}
+
+{% block hero_title %}Novo inventário{% endblock %}
+{% block hero_subtitle %}Defina um identificador, filtros dos itens e observações para a contagem{% endblock %}
+
+{% block content %}
+  <section class="data-section">
+    <div class="box data-card">
+      <form method="post" class="form">
+        {% csrf_token %}
+        <div class="field">
+          <label class="label" for="{{ form.name.id_for_label }}">Nome</label>
+          <div class="control">
+            {{ form.name }}
+          </div>
+          {% if form.name.errors %}
+            <p class="help is-danger">{{ form.name.errors.0 }}</p>
+          {% endif %}
+        </div>
+
+        <div class="columns is-multiline">
+          <div class="column is-half">
+            <div class="field">
+              <label class="label" for="{{ form.filter_query.id_for_label }}">Filtro de produtos</label>
+              <div class="control">
+                {{ form.filter_query }}
+              </div>
+              <p class="help">Use termos como nome, código, referência ou descrição.</p>
+              {% if form.filter_query.errors %}
+                <p class="help is-danger">{{ form.filter_query.errors.0 }}</p>
+              {% endif %}
+            </div>
+          </div>
+          <div class="column is-half">
+            <div class="field">
+              <label class="label" for="{{ form.filter_group.id_for_label }}">Grupo</label>
+              <div class="control select is-fullwidth">
+                {{ form.filter_group }}
+              </div>
+            </div>
+          </div>
+          <div class="column is-half">
+            <div class="field">
+              <label class="label" for="{{ form.filter_subgroup.id_for_label }}">Subgrupo</label>
+              <div class="control select is-fullwidth">
+                {{ form.filter_subgroup }}
+              </div>
+            </div>
+          </div>
+          <div class="column is-half">
+            <div class="field">
+              <label class="checkbox">
+                {{ form.filter_in_stock_only }}
+                Incluir apenas produtos com estoque maior que zero
+              </label>
+            </div>
+          </div>
+          <div class="column is-half">
+            <div class="field">
+              <label class="checkbox">
+                {{ form.filter_below_min_stock }}
+                Incluir apenas produtos abaixo do estoque mínimo
+              </label>
+            </div>
+          </div>
+          <div class="column is-full">
+            <div class="field">
+              <label class="label" for="{{ form.notes.id_for_label }}">Observações</label>
+              <div class="control">
+                {{ form.notes }}
+              </div>
+              {% if form.notes.errors %}
+                <p class="help is-danger">{{ form.notes.errors.0 }}</p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="field is-grouped">
+          <div class="control">
+            <button class="button is-primary" type="submit">Salvar</button>
+          </div>
+          <div class="control">
+            <a class="button is-light" href="{% url 'estoque:inventory_list' %}">Cancelar</a>
+          </div>
+        </div>
+      </form>
+    </div>
+  </section>
+{% endblock %}

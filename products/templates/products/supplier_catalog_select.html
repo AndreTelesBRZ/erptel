@@ -1,0 +1,65 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Selecionar produtos · {{ supplier.name }}{% endblock %}
+{% block hero_title %}Selecionar produtos{% endblock %}
+{% block hero_subtitle %}Vincule itens existentes ao catálogo de {{ supplier.name }}{% endblock %}
+{% block hero_actions %}
+  <a class="button is-light" href="{% url 'products:supplier_catalog' supplier.pk %}">Voltar ao catálogo</a>
+{% endblock %}
+
+{% block content %}
+  <div class="box data-card" data-aos="fade-up">
+    <form method="get" class="field has-addons">
+      <div class="control is-expanded">
+        <input class="input" type="search" name="q" value="{{ query }}" placeholder="Buscar por descrição, código ou referência">
+      </div>
+      <div class="control"><button class="button is-primary" type="submit">Pesquisar</button></div>
+      <div class="control"><a class="button is-light" href="{% url 'products:supplier_catalog' supplier.pk %}">Voltar</a></div>
+    </form>
+    <p class="small text-muted">Exibindo no máximo 200 resultados. Refine a busca para encontrar outros itens.</p>
+  </div>
+
+  <div class="box data-card" data-aos="fade-up" data-aos-delay="60">
+    <p class="tag is-light">Somente leitura</p>
+    <div class="table-container">
+      <table class="table is-fullwidth is-hoverable is-compact">
+        <thead>
+          <tr>
+            <th></th>
+            <th>Descrição</th>
+            <th>Código</th>
+            <th>Referência</th>
+            <th>Preço</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for product in products %}
+            <tr>
+              <td>—</td>
+              <td><a href="{% url 'products:detail' product.pk %}" target="_blank">{{ product.name }}</a></td>
+              <td>{{ product.code|default:'—' }}</td>
+              <td>{{ product.reference|default:product.supplier_code|default:'—' }}</td>
+              <td>{{ product.price|default:'—' }}</td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="5">Nenhum produto encontrado. Ajuste o filtro de busca.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const toggle = document.getElementById('toggle-all');
+      if (!toggle) return;
+      const checkboxes = Array.from(document.querySelectorAll('input[name="product_ids"]'));
+      toggle.addEventListener('change', function () {
+        checkboxes.forEach(cb => cb.checked = toggle.checked);
+      });
+    });
+  </script>
+{% endblock %}

@@ -1,0 +1,332 @@
+{% extends 'core/base.html' %}
+
+{% block title %}{% if company %}Editar empresa{% else %}Nova empresa{% endif %}{% endblock %}
+{% block hero_title %}Empresas{% endblock %}
+{% block hero_subtitle %}{% if company %}Atualize os dados da empresa{% else %}Cadastre uma nova empresa{% endif %}{% endblock %}
+
+{% block content %}
+  <section class="section" style="padding-top:1rem;">
+    <div class="container" style="max-width:760px;">
+      <div class="card">
+        <header class="card-header" style="background:linear-gradient(90deg, var(--orange), var(--orange-700));">
+          <p class="card-header-title" style="color:white;">{% if company %}Editar empresa{% else %}Nova empresa{% endif %}</p>
+        </header>
+        <div class="card-content">
+          <form method="post" novalidate>
+            {% csrf_token %}
+            <div class="columns is-multiline">
+              <div class="column is-12">
+                <div class="field">
+                  <label class="label" for="{{ form.name.id_for_label }}">Razão social</label>
+                  <div class="control">
+                    <input class="input{% if form.name.errors %} is-danger{% endif %}" type="text" name="{{ form.name.html_name }}" id="{{ form.name.id_for_label }}" value="{{ form.name.value|default:'' }}" required>
+                  </div>
+                  {% if form.name.errors %}
+                    <p class="help is-danger">{{ form.name.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-4">
+                <div class="field">
+                  <label class="label" for="{{ form.code.id_for_label }}">Código (CNPJ)</label>
+                  <div class="control">
+                    {{ form.code }}
+                  </div>
+                  <p class="help">Gerado automaticamente a partir do CNPJ.</p>
+                  {% if form.code.errors %}
+                    <p class="help is-danger">{{ form.code.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-4">
+                <div class="field">
+                  <label class="label" for="{{ form.trade_name.id_for_label }}">Nome fantasia</label>
+                  <div class="control">
+                    <input class="input{% if form.trade_name.errors %} is-danger{% endif %}" type="text" name="{{ form.trade_name.html_name }}" id="{{ form.trade_name.id_for_label }}" value="{{ form.trade_name.value|default:'' }}">
+                  </div>
+                  {% if form.trade_name.errors %}
+                    <p class="help is-danger">{{ form.trade_name.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-4">
+                <div class="field">
+                  <label class="label" for="{{ form.tax_id.id_for_label }}">CNPJ</label>
+                  <div class="field has-addons">
+                    <div class="control is-expanded">
+                      <input class="input{% if form.tax_id.errors %} is-danger{% endif %}" type="text" name="{{ form.tax_id.html_name }}" id="{{ form.tax_id.id_for_label }}" value="{{ form.tax_id.value|default:'' }}" required>
+                    </div>
+                    <div class="control">
+                      <button class="button is-info" type="button" id="sefaz-fetch-button" data-sefaz-url="{% url 'companies:sefaz_lookup' %}">Consultar SEFAZ</button>
+                    </div>
+                  </div>
+                  <p class="help" id="sefaz-feedback" aria-live="polite"></p>
+                  {% if form.tax_id.errors %}
+                    <p class="help is-danger">{{ form.tax_id.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-6">
+                <div class="field">
+                  <label class="label" for="{{ form.state_registration.id_for_label }}">Inscrição estadual</label>
+                  <div class="control">
+                    <input class="input{% if form.state_registration.errors %} is-danger{% endif %}" type="text" name="{{ form.state_registration.html_name }}" id="{{ form.state_registration.id_for_label }}" value="{{ form.state_registration.value|default:'' }}">
+                  </div>
+                  {% if form.state_registration.errors %}
+                    <p class="help is-danger">{{ form.state_registration.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-6">
+                <div class="field">
+                  <label class="label" for="{{ form.email.id_for_label }}">E-mail</label>
+                  <div class="control">
+                    <input class="input{% if form.email.errors %} is-danger{% endif %}" type="email" name="{{ form.email.html_name }}" id="{{ form.email.id_for_label }}" value="{{ form.email.value|default:'' }}">
+                  </div>
+                  {% if form.email.errors %}
+                    <p class="help is-danger">{{ form.email.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-6">
+                <div class="field">
+                  <label class="label" for="{{ form.phone.id_for_label }}">Telefone</label>
+                  <div class="control">
+                    <input class="input{% if form.phone.errors %} is-danger{% endif %}" type="text" name="{{ form.phone.html_name }}" id="{{ form.phone.id_for_label }}" value="{{ form.phone.value|default:'' }}">
+                  </div>
+                  {% if form.phone.errors %}
+                    <p class="help is-danger">{{ form.phone.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-6">
+                <div class="field">
+                  <label class="label" for="{{ form.website.id_for_label }}">Website</label>
+                  <div class="control">
+                    <input class="input{% if form.website.errors %} is-danger{% endif %}" type="url" name="{{ form.website.html_name }}" id="{{ form.website.id_for_label }}" value="{{ form.website.value|default:'' }}">
+                  </div>
+                  {% if form.website.errors %}
+                    <p class="help is-danger">{{ form.website.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-8">
+                <div class="field">
+                  <label class="label" for="{{ form.address.id_for_label }}">Endereço</label>
+                  <div class="control">
+                    <input class="input{% if form.address.errors %} is-danger{% endif %}" type="text" name="{{ form.address.html_name }}" id="{{ form.address.id_for_label }}" value="{{ form.address.value|default:'' }}">
+                  </div>
+                  {% if form.address.errors %}
+                    <p class="help is-danger">{{ form.address.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-4">
+                <div class="field">
+                  <label class="label" for="{{ form.number.id_for_label }}">Número</label>
+                  <div class="control">
+                    <input class="input{% if form.number.errors %} is-danger{% endif %}" type="text" name="{{ form.number.html_name }}" id="{{ form.number.id_for_label }}" value="{{ form.number.value|default:'' }}">
+                  </div>
+                  {% if form.number.errors %}
+                    <p class="help is-danger">{{ form.number.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-6">
+                <div class="field">
+                  <label class="label" for="{{ form.complement.id_for_label }}">Complemento</label>
+                  <div class="control">
+                    <input class="input{% if form.complement.errors %} is-danger{% endif %}" type="text" name="{{ form.complement.html_name }}" id="{{ form.complement.id_for_label }}" value="{{ form.complement.value|default:'' }}">
+                  </div>
+                  {% if form.complement.errors %}
+                    <p class="help is-danger">{{ form.complement.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-6">
+                <div class="field">
+                  <label class="label" for="{{ form.district.id_for_label }}">Bairro</label>
+                  <div class="control">
+                    <input class="input{% if form.district.errors %} is-danger{% endif %}" type="text" name="{{ form.district.html_name }}" id="{{ form.district.id_for_label }}" value="{{ form.district.value|default:'' }}">
+                  </div>
+                  {% if form.district.errors %}
+                    <p class="help is-danger">{{ form.district.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-6">
+                <div class="field">
+                  <label class="label" for="{{ form.city.id_for_label }}">Cidade</label>
+                  <div class="control">
+                    <input class="input{% if form.city.errors %} is-danger{% endif %}" type="text" name="{{ form.city.html_name }}" id="{{ form.city.id_for_label }}" value="{{ form.city.value|default:'' }}">
+                  </div>
+                  {% if form.city.errors %}
+                    <p class="help is-danger">{{ form.city.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-3">
+                <div class="field">
+                  <label class="label" for="{{ form.state.id_for_label }}">UF</label>
+                  <div class="control">
+                    <input class="input{% if form.state.errors %} is-danger{% endif %}" type="text" name="{{ form.state.html_name }}" id="{{ form.state.id_for_label }}" value="{{ form.state.value|default:'' }}" maxlength="2">
+                  </div>
+                  {% if form.state.errors %}
+                    <p class="help is-danger">{{ form.state.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-3">
+                <div class="field">
+                  <label class="label" for="{{ form.zip_code.id_for_label }}">CEP</label>
+                  <div class="control">
+                    <input class="input{% if form.zip_code.errors %} is-danger{% endif %}" type="text" name="{{ form.zip_code.html_name }}" id="{{ form.zip_code.id_for_label }}" value="{{ form.zip_code.value|default:'' }}">
+                  </div>
+                  {% if form.zip_code.errors %}
+                    <p class="help is-danger">{{ form.zip_code.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-12">
+                <div class="field">
+                  <label class="label" for="{{ form.notes.id_for_label }}">Observações</label>
+                  <div class="control">
+                    <textarea class="textarea{% if form.notes.errors %} is-danger{% endif %}" name="{{ form.notes.html_name }}" id="{{ form.notes.id_for_label }}" rows="3">{{ form.notes.value|default:'' }}</textarea>
+                  </div>
+                  {% if form.notes.errors %}
+                    <p class="help is-danger">{{ form.notes.errors.0 }}</p>
+                  {% endif %}
+                </div>
+              </div>
+              <div class="column is-12">
+                <label class="checkbox">
+                  <input type="checkbox" name="{{ form.is_active.html_name }}" {% if form.is_active.value != False %}checked{% endif %}>
+                  Empresa ativa
+                </label>
+              </div>
+            </div>
+            <div class="field is-grouped is-justify-content-flex-end" style="margin-top:1.25rem;">
+              <div class="control">
+                <a class="button is-light" href="{% url 'companies:list' %}">Cancelar</a>
+              </div>
+              <div class="control">
+                <button class="button is-primary" type="submit">Salvar</button>
+              </div>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block extra_js %}
+  {{ block.super }}
+  <script>
+    document.addEventListener('DOMContentLoaded', function () {
+      const button = document.getElementById('sefaz-fetch-button');
+      const cnpjInput = document.getElementById('{{ form.tax_id.id_for_label }}');
+      const feedback = document.getElementById('sefaz-feedback');
+      if (!button || !cnpjInput || !feedback) {
+        return;
+      }
+
+      const fieldsMap = {
+        code: '{{ form.code.id_for_label }}',
+        name: '{{ form.name.id_for_label }}',
+        trade_name: '{{ form.trade_name.id_for_label }}',
+        state_registration: '{{ form.state_registration.id_for_label }}',
+        email: '{{ form.email.id_for_label }}',
+        phone: '{{ form.phone.id_for_label }}',
+        website: '{{ form.website.id_for_label }}',
+        address: '{{ form.address.id_for_label }}',
+        number: '{{ form.number.id_for_label }}',
+        complement: '{{ form.complement.id_for_label }}',
+        district: '{{ form.district.id_for_label }}',
+        city: '{{ form.city.id_for_label }}',
+        state: '{{ form.state.id_for_label }}',
+        zip_code: '{{ form.zip_code.id_for_label }}',
+        notes: '{{ form.notes.id_for_label }}'
+      };
+
+      const checkbox = document.querySelector('input[name="{{ form.is_active.html_name }}"]');
+
+      const setFeedback = function (message, statusClass) {
+        feedback.textContent = message || '';
+        feedback.classList.remove('is-danger', 'is-success', 'is-info');
+        if (statusClass) {
+          feedback.classList.add(statusClass);
+        }
+      };
+
+      button.addEventListener('click', async function () {
+        const endpoint = button.dataset.sefazUrl;
+        if (!endpoint) {
+          setFeedback('Endpoint da SEFAZ não configurado.', 'is-danger');
+          return;
+        }
+
+        const cnpj = (cnpjInput.value || '').trim();
+        if (!cnpj) {
+          setFeedback('Informe um CNPJ para consultar.', 'is-info');
+          cnpjInput.focus();
+          return;
+        }
+
+        button.classList.add('is-loading');
+        button.disabled = true;
+        setFeedback('Consultando dados da SEFAZ...', 'is-info');
+
+        try {
+          const url = new URL(endpoint, window.location.origin);
+          url.searchParams.set('cnpj', cnpj);
+          const response = await fetch(url.toString(), {
+            headers: {'X-Requested-With': 'XMLHttpRequest'}
+          });
+
+          let body = {};
+          try {
+            body = await response.json();
+          } catch (jsonError) {
+            if (!response.ok) {
+              throw new Error('Não foi possível obter os dados da SEFAZ.');
+            }
+          }
+
+          if (!response.ok) {
+            throw new Error(body.error || 'Não foi possível obter os dados da SEFAZ.');
+          }
+
+          const data = body.data || {};
+          Object.entries(fieldsMap).forEach(function ([key, fieldId]) {
+            if (!(key in data)) {
+              return;
+            }
+            const element = document.getElementById(fieldId);
+            if (!element) {
+              return;
+            }
+            element.value = data[key] || '';
+            element.dispatchEvent(new Event('input', {bubbles: true}));
+            element.dispatchEvent(new Event('change', {bubbles: true}));
+          });
+
+          if (data.tax_id) {
+            cnpjInput.value = data.tax_id;
+          }
+
+          if (checkbox && typeof data.is_active === 'boolean') {
+            checkbox.checked = data.is_active;
+          }
+
+          setFeedback('Dados carregados da SEFAZ.', 'is-success');
+        } catch (error) {
+          setFeedback(error.message, 'is-danger');
+        } finally {
+          button.classList.remove('is-loading');
+          button.disabled = false;
+        }
+      });
+    });
+  </script>
+{% endblock %}

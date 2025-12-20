@@ -1,0 +1,52 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Inventários{% endblock %}
+
+{% block hero_title %}Inventários{% endblock %}
+{% block hero_subtitle %}Controle de contagens físicas com congelamento de estoque{% endblock %}
+{% block hero_actions %}
+  <a class="button is-primary" href="{% url 'estoque:inventory_create' %}">Novo inventário</a>
+  <a class="button is-secondary" href="{% url 'estoque:inventory_collector' %}">Coletor</a>
+{% endblock %}
+
+{% block content %}
+  <section class="data-section">
+    <div class="box data-card">
+      <header>
+        <h2>Histórico de inventários</h2>
+      </header>
+      <table class="table is-fullwidth is-hoverable">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Empresa</th>
+            <th>Status</th>
+            <th>Criado em</th>
+            <th>Itens</th>
+            <th>Diferença</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for inventory in inventories %}
+            <tr>
+              <td>{{ inventory.name }}</td>
+              <td>{{ inventory.company.trade_name|default:inventory.company.name|default:'—' }}</td>
+              <td>{{ inventory.get_status_display }}</td>
+              <td>{{ inventory.created_at|date:"d/m/Y H:i" }}</td>
+              <td>{{ inventory.total_items }}</td>
+              <td>{{ inventory.total_difference|default_if_none:0|floatformat:2 }}</td>
+              <td class="has-text-right">
+                <a class="button is-small is-link" href="{% url 'estoque:inventory_detail' inventory.pk %}">Detalhes</a>
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="7">Nenhum inventário cadastrado até o momento.</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+{% endblock %}

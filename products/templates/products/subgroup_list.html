@@ -1,0 +1,78 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Subgrupos de Produtos{% endblock %}
+{% block hero_title %}Subgrupos de Produtos{% endblock %}
+{% block hero_subtitle %}Defina subcategorias e hierarquias dentro dos grupos{% endblock %}
+{% block hero_actions %}
+  <a class="button is-primary" href="#form-subgrupo">Novo subgrupo</a>
+  <a class="button is-light" href="{% url 'products:group_list' %}">Gerenciar grupos</a>
+{% endblock %}
+
+{% block content %}
+  <div class="grid products-layout" data-aos="fade-up">
+    <div class="box data-card">
+      <header>
+        <h2 style="margin:0">Subgrupos cadastrados</h2>
+        <p class="small text-muted">Use subgrupos aninhados para detalhar categorias específicas.</p>
+      </header>
+      <table class="table is-fullwidth is-hoverable">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Grupo</th>
+            <th>Subgrupo pai</th>
+            <th>Produtos vinculados</th>
+            <th style="width:160px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for subgroup in subgroups %}
+          <tr>
+            <td>{{ subgroup.name }}</td>
+            <td>{{ subgroup.group.name }}</td>
+            <td>{% if subgroup.parent_subgroup %}{{ subgroup.parent_subgroup.name }}{% else %}—{% endif %}</td>
+            <td>{{ subgroup.product_count }}</td>
+            <td>
+              <div class="buttons are-small">
+                <a class="button is-secondary" href="{% url 'products:subgroup_edit' subgroup.pk %}">Editar</a>
+                <form action="{% url 'products:subgroup_delete' subgroup.pk %}" method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <button class="button is-danger is-light" type="submit" onclick="return confirm('Remover o subgrupo {{ subgroup.name }}?')">Excluir</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="5">Nenhum subgrupo cadastrado.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="box data-card" id="form-subgrupo" data-aos="fade-up" data-aos-delay="80">
+      <h3 class="small text-muted" style="text-transform:uppercase; letter-spacing:0.18em;">
+        {% if is_edit %}Editar subgrupo{% else %}Novo subgrupo{% endif %}
+      </h3>
+      <form method="post">
+        {% csrf_token %}
+        <div class="form-field">
+          {{ form.group.label_tag }}
+          {{ form.group }}
+        </div>
+        <div class="form-field">
+          {{ form.parent_subgroup.label_tag }}
+          {{ form.parent_subgroup }}
+        </div>
+        <div class="form-field">
+          {{ form.name.label_tag }}
+          {{ form.name }}
+        </div>
+        <div class="form-actions">
+          <button class="button is-primary" type="submit">Salvar</button>
+          {% if is_edit %}
+            <a class="button is-secondary" href="{% url 'products:subgroup_list' %}">Cancelar</a>
+          {% endif %}
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}

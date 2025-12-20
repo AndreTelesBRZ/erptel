@@ -2,12 +2,16 @@
 
 {% block title %}Remover Produto{% endblock %}
 
+{% block hero_title %}Remover Produto{% endblock %}
+{% block hero_subtitle %}Esta ação não pode ser desfeita{% endblock %}
+
 {% block content %}
-  <h1 class="title">Remover Produto</h1>
-  <p>Tem certeza que deseja remover {{ product.name }}?</p>
-  <form method="post">
-    {% csrf_token %}
-  <button class="button is-danger" type="submit">Sim, remover</button>
-  <a class="button" href="{% url 'products:index' %}">Cancelar</a>
-  </form>
+  <div class="box">
+    <p>Tem certeza que deseja remover <strong>{{ product.name }}</strong>?</p>
+    <form method="post" class="is-flex is-justify-content-space-between" style="gap:0.5rem;">
+      {% csrf_token %}
+      <a class="button" href="{% url 'products:index' %}">Cancelar</a>
+      <button class="button is-danger" type="submit">Sim, remover</button>
+    </form>
+  </div>
 {% endblock %}

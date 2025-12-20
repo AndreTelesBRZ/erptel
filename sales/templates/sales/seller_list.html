@@ -1,0 +1,112 @@
+{% extends 'core/base.html' %}
+
+{% block title %}Vendedores{% endblock %}
+{% block hero_title %}Vendedores{% endblock %}
+{% block hero_subtitle %}Associe usuários do sistema como representantes de vendas{% endblock %}
+{% block hero_actions %}
+  <a class="button is-primary" href="#form-vendedor">Novo vendedor</a>
+{% endblock %}
+
+{% block content %}
+  <div class="grid products-layout" data-aos="fade-up">
+    <div class="box data-card">
+      <header>
+        <h2 style="margin:0">Usuários vinculados</h2>
+        <p class="small text-muted">Lista de vendedores ativos para os módulos comerciais.</p>
+      </header>
+      <table class="table is-fullwidth is-hoverable">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Código</th>
+            <th>CPF</th>
+            <th>Usuário</th>
+            <th>Telefone</th>
+            <th>Status</th>
+            <th style="width:160px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for seller in sellers %}
+          <tr>
+            <td>{{ seller.user.get_full_name|default:seller.user.username }}</td>
+            <td>{{ seller.code }}</td>
+            <td>{{ seller.formatted_cpf }}</td>
+            <td>{{ seller.user.username }}</td>
+            <td>{{ seller.phone|default:'—' }}</td>
+            <td>
+              {% if seller.is_active %}
+                <span class="chip" style="background:rgba(34,197,94,0.12); color:var(--success); border-color:transparent;">Ativo</span>
+              {% else %}
+                <span class="chip" style="background:rgba(148,163,184,0.15); color:var(--color-text); border-color:transparent;">Inativo</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="buttons are-small">
+                <a class="button is-secondary" href="{% url 'sales:seller_edit' seller.pk %}">Editar</a>
+                <form action="{% url 'sales:seller_delete' seller.pk %}" method="post" style="display:inline;">
+                  {% csrf_token %}
+                  <button class="button is-danger is-light" type="submit" onclick="return confirm('Remover o vendedor {{ seller }}?')">Excluir</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+          {% empty %}
+          <tr><td colspan="7">Nenhum vendedor cadastrado.</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="box data-card" id="form-vendedor" data-aos="fade-up" data-aos-delay="80">
+      <h3 class="small text-muted" style="text-transform:uppercase; letter-spacing:0.18em;">
+        {% if is_edit %}Editar vendedor{% else %}Novo vendedor{% endif %}
+      </h3>
+      <form method="post">
+        {% csrf_token %}
+        <div class="form-field">
+          {{ form.user.label_tag }}
+          {{ form.user }}
+          {% if form.user.help_text %}
+            <p class="small text-muted">{{ form.user.help_text }}</p>
+          {% endif %}
+          {% if form.user.errors %}
+            <p class="help is-danger">{{ form.user.errors.0 }}</p>
+          {% endif %}
+        </div>
+        <div class="form-field">
+          {{ form.cpf.label_tag }}
+          {{ form.cpf }}
+          {% if form.cpf.errors %}
+            <p class="help is-danger">{{ form.cpf.errors.0 }}</p>
+          {% endif %}
+        </div>
+        <div class="form-field">
+          {{ form.code.label_tag }}
+          {{ form.code }}
+          <p class="small text-muted">Gerado automaticamente a partir do CPF.</p>
+          {% if form.code.errors %}
+            <p class="help is-danger">{{ form.code.errors.0 }}</p>
+          {% endif %}
+        </div>
+        <div class="form-field">
+          {{ form.phone.label_tag }}
+          {{ form.phone }}
+          {% if form.phone.errors %}
+            <p class="help is-danger">{{ form.phone.errors.0 }}</p>
+          {% endif %}
+        </div>
+        <div class="form-field">
+          <label class="checkbox">
+            {{ form.is_active }} <span>Ativo</span>
+          </label>
+        </div>
+        <div class="form-actions">
+          <button class="button is-primary" type="submit">Salvar</button>
+          {% if is_edit %}
+            <a class="button is-secondary" href="{% url 'sales:seller_list' %}">Cancelar</a>
+          {% endif %}
+        </div>
+      </form>
+    </div>
+  </div>
+{% endblock %}
