@@ -1,7 +1,8 @@
 import os
+import logging
 import requests
 import pyodbc
-from datetime import datetime
+from math import ceil
 
 API_BASE = os.getenv("API_BASE_URL", "http://127.0.0.1:9000")
 API_URL = os.getenv("API_PRODUTOS_URL", f"{API_BASE}/api/products/sync")
@@ -9,6 +10,14 @@ API_LOGIN_URL = os.getenv("API_LOGIN_URL", f"{API_BASE}/auth/login")
 API_USERNAME = os.getenv("API_USERNAME", "apiadmin")
 API_PASSWORD = os.getenv("API_PASSWORD", "TroqueEstaSenha!")
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "60"))
+BATCH_SIZE = int(os.getenv("PRODUTOS_BATCH_SIZE", "500"))
+LOG_FILE = "/home/ubuntu/apps/Django/sync/sync.log"
+
+logging.basicConfig(
+    filename=LOG_FILE,
+    level=logging.INFO,
+    format="%(asctime)s | PRODUTOS | %(levelname)s | %(message)s",
+)
 
 conn_str = (
     "DRIVER={ODBC Driver 18 for SQL Server};"
@@ -93,25 +102,52 @@ def _obter_token():
 
 
 def enviar_api(produtos):
-    print(f"\n===== INICIANDO SINCRONIZAÇÃO =====")
-    print(f"{datetime.now()} Enviando {len(produtos)} produtos...")
-
     try:
         token = _obter_token()
         headers = {"Authorization": f"Bearer {token}"}
         response = requests.post(API_URL, json=produtos, headers=headers, timeout=API_TIMEOUT)
-        print("Status:", response.status_code)
-        print("Resposta:", response.text)
+        if response.status_code != 200:
+            raise RuntimeError(f"Erro API {response.status_code} - {response.text}")
+        return response.json()
 
     except Exception as e:
-        print("Erro ao enviar:", e)
+        raise RuntimeError(f"Erro ao enviar lote: {e}") from e
 
-    print("===== FINALIZADO =====\n")
+    return {}
 
 
 def run():
+    logging.info("=== INICIO SYNC PRODUTOS ===")
     produtos = obter_produtos()
-    enviar_api(produtos)
+    total = len(produtos)
+    if total == 0:
+        logging.warning("Nenhum produto encontrado na view vw_produtos_sync_preco_estoque")
+        return
+
+    logging.info("Total de produtos encontrados: %s", total)
+    if BATCH_SIZE <= 0:
+        total_lotes = 1
+        lotes = [produtos]
+    else:
+        total_lotes = ceil(total / BATCH_SIZE)
+        lotes = (produtos[i:i + BATCH_SIZE] for i in range(0, total, BATCH_SIZE))
+
+    enviados = 0
+    for idx, batch in enumerate(lotes, start=1):
+        try:
+            result = enviar_api(batch)
+            enviados += len(batch)
+            logging.info(
+                "Lote %s/%s OK | Registros: %s | Resposta API: %s",
+                idx,
+                total_lotes,
+                len(batch),
+                result,
+            )
+        except Exception as exc:
+            logging.error("Lote %s/%s ERRO | %s", idx, total_lotes, exc)
+
+    logging.info("=== FIM SYNC PRODUTOS | Enviados %s/%s ===", enviados, total)
 
 
 if __name__ == "__main__":

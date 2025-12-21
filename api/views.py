@@ -7,8 +7,14 @@ from rest_framework.views import APIView
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
 
-from .models import ProdutoSync
-from .serializers import ProdutoSyncSerializer, PedidoSerializer, ClienteSyncSerializer
+from .models import ProdutoSync, PlanoPagamentoCliente, Loja
+from .serializers import (
+	ProdutoSyncSerializer,
+	PedidoSerializer,
+	ClienteSyncSerializer,
+	PlanoPagamentoClienteSerializer,
+	LojaSerializer,
+)
 from core.forms import SefazConfigurationForm
 from core.models import SefazConfiguration
 from companies.models import Company
@@ -93,6 +99,34 @@ class ClienteSyncViewSet(viewsets.ReadOnlyModelViewSet):
 	]
 
 
+class LojaViewSet(viewsets.ReadOnlyModelViewSet):
+	queryset = Loja.objects.all().order_by("codigo")
+	serializer_class = LojaSerializer
+	permission_classes = [HasAppToken]
+	pagination_class = None
+	search_fields = [
+		"codigo",
+		"razao_social",
+		"nome_fantasia",
+		"cnpj_cpf",
+		"cidade",
+		"estado",
+	]
+	filterset_fields = [
+		"codigo",
+		"cidade",
+		"estado",
+	]
+	ordering_fields = [
+		"codigo",
+		"razao_social",
+		"nome_fantasia",
+		"cidade",
+		"estado",
+		"updated_at",
+	]
+
+
 class SefazConfigurationAPIView(APIView):
 	permission_classes = [permissions.IsAuthenticated]
 
@@ -171,6 +205,106 @@ class CompanyNFeAPIView(APIView):
 			'count': len(documents),
 			'documents': documents,
 		})
+
+
+class PlanoPagamentoClienteAPIView(APIView):
+	permission_classes = [HasAppToken]
+
+	def get(self, request, cliente_codigo: str = ""):
+		cliente_codigo = (cliente_codigo or request.query_params.get("cliente_codigo") or "").strip()
+		if not cliente_codigo:
+			return Response({"detail": "Informe o código do cliente."}, status=status.HTTP_400_BAD_REQUEST)
+
+		qs = PlanoPagamentoCliente.objects.filter(cliente_codigo=cliente_codigo).order_by("plano_codigo")
+		data = PlanoPagamentoClienteSerializer(qs, many=True).data
+		return Response(
+			{
+				"cliente_codigo": cliente_codigo,
+				"total": len(data),
+				"data": data,
+			}
+		)
+
+
+class PlanoPagamentoClienteSyncAPIView(APIView):
+	permission_classes = [HasAppToken]
+
+	def post(self, request):
+		payload = request.data
+		if isinstance(payload, dict) and "data" in payload:
+			payload = payload["data"]
+		if not isinstance(payload, list):
+			return Response({"detail": "Envie uma lista de planos."}, status=status.HTTP_400_BAD_REQUEST)
+
+		serializer = PlanoPagamentoClienteSerializer(data=payload, many=True)
+		serializer.is_valid(raise_exception=True)
+
+		now = timezone.now()
+		plans = [
+			PlanoPagamentoCliente(updated_at=now, **item)
+			for item in serializer.validated_data
+		]
+		if plans:
+			PlanoPagamentoCliente.objects.bulk_create(
+				plans,
+				update_conflicts=True,
+				unique_fields=["cliente_codigo", "plano_codigo"],
+				update_fields=[
+					"descricao",
+					"entrada_percentual",
+					"intervalo_primeira_parcela",
+					"intervalo_parcelas",
+					"quantidade_parcelas",
+					"valor_acrescimo",
+					"valor_minimo",
+					"updated_at",
+				],
+			)
+
+		return Response({"status": "ok", "total": len(plans)})
+
+
+class LojaSyncAPIView(APIView):
+	permission_classes = [HasAppToken]
+
+	def post(self, request):
+		payload = request.data
+		if isinstance(payload, dict) and "data" in payload:
+			payload = payload["data"]
+		if not isinstance(payload, list):
+			return Response({"detail": "Envie uma lista de lojas."}, status=status.HTTP_400_BAD_REQUEST)
+
+		serializer = LojaSerializer(data=payload, many=True)
+		serializer.is_valid(raise_exception=True)
+
+		now = timezone.now()
+		lojas = [Loja(updated_at=now, **item) for item in serializer.validated_data]
+		if lojas:
+			Loja.objects.bulk_create(
+				lojas,
+				update_conflicts=True,
+				unique_fields=["codigo"],
+				update_fields=[
+					"razao_social",
+					"nome_fantasia",
+					"cnpj_cpf",
+					"ie_rg",
+					"tipo_pf_pj",
+					"telefone1",
+					"telefone2",
+					"endereco",
+					"bairro",
+					"numero",
+					"complemento",
+					"cep",
+					"email",
+					"cidade",
+					"estado",
+					"updated_at",
+				],
+			)
+
+		return Response({"status": "ok", "total": len(lojas)})
 
 
 class PedidoViewSet(mixins.CreateModelMixin,

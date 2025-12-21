@@ -25,8 +25,18 @@ django.setup()
 
 from clients.models import Client, ClienteSync
 from products.models import Product, ProdutoSync
+from api.models import PlanoPagamentoCliente, Loja
 from sales.models import Pedido, ItemPedido
-from django.db import transaction
+from django.db import transaction, models
+from django.core.files.uploadedfile import SimpleUploadedFile
+from core.forms import SefazConfigurationForm
+from core.models import SefazConfiguration
+from companies.models import Company
+from companies.services import (
+    prepare_company_nfe_query,
+    serialize_nfe_document,
+    has_configured_sefaz_certificate,
+)
 
 logger = logging.getLogger("erp_api")
 # File logger to capture API issues even when journald is unavailable
@@ -130,6 +140,58 @@ def _get_auth_pool():
     if not pool:
         raise HTTPException(503, "Pool de autenticação não inicializado")
     return pool
+
+
+def _serialize_sefaz_config(config: SefazConfiguration) -> dict:
+    return {
+        "base_url": config.base_url,
+        "token": config.token,
+        "timeout": config.timeout,
+        "environment": config.environment,
+        "certificate": {
+            "is_configured": has_configured_sefaz_certificate(config),
+            "subject": config.certificate_subject,
+            "serial_number": config.certificate_serial_number,
+            "valid_from": config.certificate_valid_from.isoformat() if config.certificate_valid_from else None,
+            "valid_until": config.certificate_valid_until.isoformat() if config.certificate_valid_until else None,
+            "uploaded_at": config.certificate_uploaded_at.isoformat() if config.certificate_uploaded_at else None,
+        },
+    }
+
+
+def _plan_to_dict(plan: PlanoPagamentoCliente) -> dict:
+    return {
+        "CLICOD": plan.cliente_codigo,
+        "PLACOD": plan.plano_codigo,
+        "PLADES": plan.descricao or "",
+        "PLAENT": plan.entrada_percentual,
+        "PLAINTPRI": plan.intervalo_primeira_parcela,
+        "PLAINTPAR": plan.intervalo_parcelas,
+        "PLANUMPAR": plan.quantidade_parcelas,
+        "PLAVLRMIN": plan.valor_minimo,
+        "PLAVLRACR": plan.valor_acrescimo,
+    }
+
+
+def _loja_to_dict(loja: Loja) -> dict:
+    return {
+        "LOJCOD": loja.codigo,
+        "AGEDES": loja.razao_social or "",
+        "AGEFAN": loja.nome_fantasia or "",
+        "AGECGCCPF": loja.cnpj_cpf or "",
+        "AGECGFRG": loja.ie_rg or "",
+        "AGEPFPJ": loja.tipo_pf_pj or "",
+        "AGETEL1": loja.telefone1 or "",
+        "AGETEL2": loja.telefone2 or "",
+        "AGEEND": loja.endereco or "",
+        "AGEBAI": loja.bairro or "",
+        "AGENUM": loja.numero or "",
+        "AGECPL": loja.complemento or "",
+        "AGECEP": loja.cep or "",
+        "AGECORELE": loja.email or "",
+        "AGECID": loja.cidade or "",
+        "AGEEST": loja.estado or "",
+    }
 
 
 async def _ensure_auth_tables(conn: asyncpg.Connection) -> None:
@@ -381,6 +443,52 @@ class PedidoIn(BaseModel):
         return v
 
 
+class PlanoPagamentoClienteIn(BaseModel):
+    CLICOD: str
+    PLACOD: str
+    PLADES: Optional[str] = None
+    PLAENT: Optional[Decimal] = None
+    PLAINTPRI: Optional[int] = None
+    PLAINTPAR: Optional[int] = None
+    PLANUMPAR: Optional[int] = None
+    PLAVLRMIN: Optional[Decimal] = None
+    PLAVLRACR: Optional[Decimal] = None
+
+
+class PlanoPagamentoClienteOut(PlanoPagamentoClienteIn):
+    pass
+
+
+class SefazConfigIn(BaseModel):
+    base_url: Optional[str] = None
+    token: Optional[str] = None
+    timeout: Optional[int] = None
+    environment: Optional[str] = None
+    certificate_file_b64: Optional[str] = None
+    certificate_filename: Optional[str] = None
+    certificate_password: Optional[str] = None
+    clear_certificate: bool = False
+
+
+class LojaIn(BaseModel):
+    LOJCOD: str
+    AGEDES: Optional[str] = None
+    AGEFAN: Optional[str] = None
+    AGECGCCPF: Optional[str] = None
+    AGECGFRG: Optional[str] = None
+    AGEPFPJ: Optional[str] = None
+    AGETEL1: Optional[str] = None
+    AGETEL2: Optional[str] = None
+    AGEEND: Optional[str] = None
+    AGEBAI: Optional[str] = None
+    AGENUM: Optional[str] = None
+    AGECPL: Optional[str] = None
+    AGECEP: Optional[str] = None
+    AGECORELE: Optional[str] = None
+    AGECID: Optional[str] = None
+    AGEEST: Optional[str] = None
+
+
 async def require_jwt(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> dict:
     if DISABLE_API_AUTH:
         return {"id": 0, "username": "auth_disabled"}
@@ -431,17 +539,69 @@ async def require_admin(token: dict = Depends(require_jwt)) -> dict:
 # -----------------------------------
 # LISTAR PRODUTOS (tabela já existente)
 # -----------------------------------
-@app.get("/api/products")
+@app.get("/api/products", tags=["produtos"])
 async def listar_produtos(token: dict = Depends(require_jwt)):
     pool = _get_data_pool()
     async with pool.acquire() as conn:
         rows = await conn.fetch("SELECT * FROM erp_produtos_sync ORDER BY codigo;")
         return [dict(r) for r in rows]
 
+
+@app.get("/api/produtos-sync", tags=["produtos"])
+async def listar_produtos_sync(
+    q: Optional[str] = None,
+    codigo: Optional[str] = None,
+    plu: Optional[str] = None,
+    ean: Optional[str] = None,
+    loja: Optional[str] = None,
+    token: dict = Depends(require_jwt),
+):
+    clauses = []
+    params = []
+
+    if codigo:
+        params.append(codigo)
+        clauses.append(f"codigo = ${len(params)}")
+    if plu:
+        params.append(plu)
+        clauses.append(f"plu = ${len(params)}")
+    if ean:
+        params.append(ean)
+        clauses.append(f"ean = ${len(params)}")
+    if loja:
+        params.append(loja)
+        clauses.append(f"loja = ${len(params)}")
+    if q:
+        params.append(f"%{q}%")
+        clauses.append(
+            f"(descricao_completa ILIKE ${len(params)} OR referencia ILIKE ${len(params)} OR codigo ILIKE ${len(params)})"
+        )
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    sql = f"SELECT * FROM erp_produtos_sync {where_sql} ORDER BY codigo;"
+
+    pool = _get_data_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(sql, *params)
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/produtos-sync/{codigo}", tags=["produtos"])
+async def produto_por_codigo(codigo: str, token: dict = Depends(require_jwt)):
+    pool = _get_data_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM erp_produtos_sync WHERE codigo = $1;",
+            codigo,
+        )
+    if not row:
+        raise HTTPException(404, "Produto não encontrado")
+    return dict(row)
+
 # -----------------------------------
 # BUSCAR POR PLU
 # -----------------------------------
-@app.get("/api/products/{plu}")
+@app.get("/api/products/{plu}", tags=["produtos"])
 async def produto_por_plu(plu: str, token: dict = Depends(require_jwt)):
     pool = _get_data_pool()
     async with pool.acquire() as conn:
@@ -458,7 +618,7 @@ async def produto_por_plu(plu: str, token: dict = Depends(require_jwt)):
 # -----------------------------------
 # BUSCA POR DESCRIÇÃO
 # -----------------------------------
-@app.get("/api/products/search")
+@app.get("/api/products/search", tags=["produtos"])
 async def buscar_produto(q: str, token: dict = Depends(require_jwt)):
     pool = _get_data_pool()
     async with pool.acquire() as conn:
@@ -476,7 +636,7 @@ async def buscar_produto(q: str, token: dict = Depends(require_jwt)):
 # -----------------------------------
 # SINCRONIZAÇÃO DE PRODUTOS
 # -----------------------------------
-@app.post("/api/products/sync")
+@app.post("/api/products/sync", tags=["produtos"])
 async def sync_products(produtos: List[ProdutoSyncIn], token: dict = Depends(require_jwt)):
     pool = _get_data_pool()
 
@@ -559,7 +719,7 @@ async def sync_products(produtos: List[ProdutoSyncIn], token: dict = Depends(req
 # -----------------------------------
 # CLIENTES
 # -----------------------------------
-@app.get("/api/clientes")
+@app.get("/api/clientes", tags=["clientes"])
 async def listar_clientes(
     page: int = Query(1, ge=1),
     page_size: Optional[int] = Query(None, ge=1),
@@ -600,7 +760,7 @@ async def listar_clientes(
     return response
 
 
-@app.get("/api/clientes/lista")
+@app.get("/api/clientes/lista", tags=["clientes"])
 async def listar_clientes_lista(token: dict = Depends(require_jwt)):
     pool = _get_data_pool()
     async with pool.acquire() as conn:
@@ -614,7 +774,7 @@ async def listar_clientes_lista(token: dict = Depends(require_jwt)):
     return [dict(r) for r in rows]
 
 
-@app.get("/api/clientes/lista")
+@app.get("/api/clientes/lista", tags=["clientes"])
 async def listar_clientes_lista(token: dict = Depends(require_jwt)):
     pool = _get_data_pool()
     async with pool.acquire() as conn:
@@ -628,7 +788,7 @@ async def listar_clientes_lista(token: dict = Depends(require_jwt)):
     return [dict(r) for r in rows]
 
 
-@app.get("/api/clientes/{cliente_codigo}")
+@app.get("/api/clientes/{cliente_codigo}", tags=["clientes"])
 async def cliente_por_codigo(cliente_codigo: str, token: dict = Depends(require_jwt)):
     pool = _get_data_pool()
     async with pool.acquire() as conn:
@@ -645,7 +805,7 @@ async def cliente_por_codigo(cliente_codigo: str, token: dict = Depends(require_
     return dict(row)
 
 
-@app.get("/api/clientes/search")
+@app.get("/api/clientes/search", tags=["clientes"])
 async def buscar_cliente(q: str, token: dict = Depends(require_jwt)):
     pool = _get_data_pool()
     like = f"%{q}%"
@@ -664,11 +824,284 @@ async def buscar_cliente(q: str, token: dict = Depends(require_jwt)):
 
 
 # -----------------------------------
+# PLANOS DE PAGAMENTO (Postgres)
+# -----------------------------------
+def _sync_planos_pagamento_clientes(payload: List[PlanoPagamentoClienteIn]) -> int:
+    now = dj_timezone.now()
+    plans = [
+        PlanoPagamentoCliente(
+            cliente_codigo=item.CLICOD,
+            plano_codigo=item.PLACOD,
+            descricao=item.PLADES or "",
+            entrada_percentual=item.PLAENT,
+            intervalo_primeira_parcela=item.PLAINTPRI,
+            intervalo_parcelas=item.PLAINTPAR,
+            quantidade_parcelas=item.PLANUMPAR,
+            valor_minimo=item.PLAVLRMIN,
+            valor_acrescimo=item.PLAVLRACR,
+            updated_at=now,
+        )
+        for item in payload
+    ]
+    if not plans:
+        return 0
+    PlanoPagamentoCliente.objects.bulk_create(
+        plans,
+        update_conflicts=True,
+        unique_fields=["cliente_codigo", "plano_codigo"],
+        update_fields=[
+            "descricao",
+            "entrada_percentual",
+            "intervalo_primeira_parcela",
+            "intervalo_parcelas",
+            "quantidade_parcelas",
+            "valor_minimo",
+            "valor_acrescimo",
+            "updated_at",
+        ],
+    )
+    return len(plans)
+
+
+@app.get("/api/planos-pagamento-cliente", tags=["planos_pagamento"])
+async def listar_planos_pagamento_cliente(
+    cliente_codigo: str = Query(...),
+    token: dict = Depends(require_jwt),
+):
+    plans = await run_in_threadpool(
+        lambda: list(
+            PlanoPagamentoCliente.objects.filter(cliente_codigo=cliente_codigo).order_by("plano_codigo")
+        )
+    )
+    data = [_plan_to_dict(plan) for plan in plans]
+    return {"cliente_codigo": cliente_codigo, "total": len(data), "data": data}
+
+
+@app.get("/api/planos-pagamento-cliente/{cliente_codigo}", tags=["planos_pagamento"])
+async def listar_planos_pagamento_cliente_path(
+    cliente_codigo: str,
+    token: dict = Depends(require_jwt),
+):
+    plans = await run_in_threadpool(
+        lambda: list(
+            PlanoPagamentoCliente.objects.filter(cliente_codigo=cliente_codigo).order_by("plano_codigo")
+        )
+    )
+    data = [_plan_to_dict(plan) for plan in plans]
+    return {"cliente_codigo": cliente_codigo, "total": len(data), "data": data}
+
+
+@app.post("/api/planos-pagamento-clientes/sync", tags=["planos_pagamento"])
+async def sync_planos_pagamento_clientes(
+    payload: List[PlanoPagamentoClienteIn],
+    token: dict = Depends(require_jwt),
+):
+    total = await run_in_threadpool(_sync_planos_pagamento_clientes, payload)
+    return {"status": "ok", "total": total}
+
+
+# -----------------------------------
+# LOJAS (Postgres)
+# -----------------------------------
+def _sync_lojas(payload: List[LojaIn]) -> int:
+    now = dj_timezone.now()
+    lojas = [
+        Loja(
+            codigo=item.LOJCOD,
+            razao_social=item.AGEDES or "",
+            nome_fantasia=item.AGEFAN or "",
+            cnpj_cpf=item.AGECGCCPF or "",
+            ie_rg=item.AGECGFRG or "",
+            tipo_pf_pj=item.AGEPFPJ or "",
+            telefone1=item.AGETEL1 or "",
+            telefone2=item.AGETEL2 or "",
+            endereco=item.AGEEND or "",
+            bairro=item.AGEBAI or "",
+            numero=item.AGENUM or "",
+            complemento=item.AGECPL or "",
+            cep=item.AGECEP or "",
+            email=item.AGECORELE or "",
+            cidade=item.AGECID or "",
+            estado=item.AGEEST or "",
+            updated_at=now,
+        )
+        for item in payload
+    ]
+    if not lojas:
+        return 0
+    Loja.objects.bulk_create(
+        lojas,
+        update_conflicts=True,
+        unique_fields=["codigo"],
+        update_fields=[
+            "razao_social",
+            "nome_fantasia",
+            "cnpj_cpf",
+            "ie_rg",
+            "tipo_pf_pj",
+            "telefone1",
+            "telefone2",
+            "endereco",
+            "bairro",
+            "numero",
+            "complemento",
+            "cep",
+            "email",
+            "cidade",
+            "estado",
+            "updated_at",
+        ],
+    )
+    return len(lojas)
+
+
+@app.get("/api/lojas", tags=["lojas"])
+async def listar_lojas(
+    q: Optional[str] = None,
+    token: dict = Depends(require_jwt),
+):
+    def _fetch():
+        qs = Loja.objects.all().order_by("codigo")
+        if q:
+            return list(
+                qs.filter(
+                    models.Q(codigo__icontains=q)
+                    | models.Q(razao_social__icontains=q)
+                    | models.Q(nome_fantasia__icontains=q)
+                    | models.Q(cidade__icontains=q)
+                    | models.Q(estado__icontains=q)
+                )
+            )
+        return list(qs)
+
+    lojas = await run_in_threadpool(_fetch)
+    return [_loja_to_dict(loja) for loja in lojas]
+
+
+@app.get("/api/lojas/{loja_codigo}", tags=["lojas"])
+async def detalhar_loja(
+    loja_codigo: str,
+    token: dict = Depends(require_jwt),
+):
+    loja = await run_in_threadpool(lambda: Loja.objects.filter(codigo=loja_codigo).first())
+    if not loja:
+        raise HTTPException(404, "Loja não encontrada")
+    return _loja_to_dict(loja)
+
+
+@app.post("/api/lojas/sync", tags=["lojas"])
+async def sync_lojas(
+    payload: List[LojaIn],
+    token: dict = Depends(require_jwt),
+):
+    total = await run_in_threadpool(_sync_lojas, payload)
+    return {"status": "ok", "total": total}
+
+
+# -----------------------------------
 # ROTA RAIZ
 # -----------------------------------
 @app.get("/")
 async def root(token: dict = Depends(require_jwt)):
     return {"status": "API funcionando", "user_id": token.get("id")}
+
+
+# -----------------------------------
+# SEFAZ CONFIG (Postgres)
+# -----------------------------------
+def _handle_sefaz_submit(data: dict, files: dict) -> dict:
+    config = SefazConfiguration.load()
+    form = SefazConfigurationForm(data, files, instance=config)
+    if form.is_valid():
+        cfg = form.save(commit=False)
+        cfg.updated_by = None
+        cfg.save()
+        return {"data": _serialize_sefaz_config(cfg)}
+    return {"errors": form.errors}
+
+
+@app.get("/api/sefaz/config", tags=["sefaz"])
+async def get_sefaz_config(token: dict = Depends(require_jwt)):
+    cfg = await run_in_threadpool(SefazConfiguration.load)
+    return _serialize_sefaz_config(cfg)
+
+
+@app.put("/api/sefaz/config", tags=["sefaz"])
+@app.patch("/api/sefaz/config", tags=["sefaz"])
+async def update_sefaz_config(
+    payload: SefazConfigIn,
+    token: dict = Depends(require_jwt),
+):
+    data = {
+        "base_url": (payload.base_url or "").strip(),
+        "token": (payload.token or "").strip(),
+        "timeout": payload.timeout,
+        "environment": payload.environment,
+        "certificate_password": (payload.certificate_password or "").strip(),
+        "clear_certificate": bool(payload.clear_certificate),
+    }
+    files = {}
+    if payload.certificate_file_b64:
+        filename = payload.certificate_filename or "certificate.pfx"
+        try:
+            content = base64.b64decode(payload.certificate_file_b64)
+        except Exception:
+            return JSONResponse({"certificate_file_b64": ["Arquivo inválido (base64)."]}, status_code=400)
+        files["certificate_file"] = SimpleUploadedFile(filename, content)
+
+    result = await run_in_threadpool(_handle_sefaz_submit, data, files)
+    if "errors" in result:
+        return JSONResponse(result["errors"], status_code=400)
+    return result["data"]
+
+
+@app.get("/api/companies/{pk}/nfe", tags=["sefaz"])
+async def company_nfe(
+    pk: int,
+    last_nsu: Optional[str] = None,
+    nsu: Optional[str] = None,
+    access_key: Optional[str] = None,
+    issued_from: Optional[str] = None,
+    issued_until: Optional[str] = None,
+    authorized_from: Optional[str] = None,
+    authorized_until: Optional[str] = None,
+    token: dict = Depends(require_jwt),
+):
+    def _run_query():
+        company = Company.objects.get(pk=pk)
+        params = {
+            "last_nsu": last_nsu,
+            "nsu": nsu,
+            "access_key": access_key,
+            "issued_from": issued_from,
+            "issued_until": issued_until,
+            "authorized_from": authorized_from,
+            "authorized_until": authorized_until,
+        }
+        params, result, error, sefaz_ready = prepare_company_nfe_query(company, params)
+        if not sefaz_ready:
+            return {"status": 503, "payload": {"error": error, "params": params}}
+        if error:
+            return {"status": 400, "payload": {"error": error, "params": params}}
+        if not result:
+            return {"status": 200, "payload": {"message": "Nenhuma resposta foi retornada pela SEFAZ.", "params": params}}
+        documents = [serialize_nfe_document(doc) for doc in result.documents]
+        return {
+            "status": 200,
+            "payload": {
+                "company": {"id": company.pk, "name": company.name, "tax_id": company.tax_id},
+                "params": params,
+                "status_code": result.status_code,
+                "status_message": result.status_message,
+                "last_nsu": result.last_nsu,
+                "max_nsu": result.max_nsu,
+                "count": len(documents),
+                "documents": documents,
+            },
+        }
+
+    result = await run_in_threadpool(_run_query)
+    return JSONResponse(result["payload"], status_code=result["status"])
 
 
 @auth_router.post("/login", response_model=LoginResponse)
@@ -697,6 +1130,11 @@ async def login(payload: LoginRequest):
         expires_in=JWT_EXPIRES_MINUTES * 60,
     )
     return {"token": token_out, "user": user_data}
+
+
+@app.post("/api/login", tags=["auth"])
+async def login_alias(payload: LoginRequest):
+    return await login(payload)
 
 
 @auth_router.post("/users", response_model=UserOut, dependencies=[Depends(require_admin)])
@@ -1073,6 +1511,37 @@ async def listar_pedidos(
 
 @router.get("/pedidos/{pedido_id}", tags=["pedidos"])
 async def detalhar_pedido(pedido_id: int, token: dict = Depends(require_jwt)):
+    return await run_in_threadpool(_get_pedido_sync, pedido_id)
+
+
+@router.post("/pedidos-venda", tags=["pedidos"])
+async def criar_pedido_venda(payload: PedidoIn, token: dict = Depends(require_jwt)):
+    pedido, created = await run_in_threadpool(_create_pedido_sync, payload, token.get("vendor_code"))
+    if created:
+        return {
+            "id": pedido.id,
+            "status": pedido.status,
+            "pagamento_status": pedido.pagamento_status,
+            "forma_pagamento": pedido.forma_pagamento,
+            "frete_modalidade": pedido.frete_modalidade,
+            "vendedor_codigo": pedido.vendedor_codigo,
+            "vendedor_nome": pedido.vendedor_nome,
+        }
+    return {"id": pedido.id, "status": pedido.status}
+
+
+@router.get("/pedidos-venda", tags=["pedidos"])
+async def listar_pedidos_venda(
+    limit: int = 50,
+    cliente_id: Optional[str] = None,
+    status: Optional[str] = None,
+    token: dict = Depends(require_jwt),
+):
+    return await run_in_threadpool(_listar_pedidos_sync, limit, cliente_id, status)
+
+
+@router.get("/pedidos-venda/{pedido_id}", tags=["pedidos"])
+async def detalhar_pedido_venda(pedido_id: int, token: dict = Depends(require_jwt)):
     return await run_in_threadpool(_get_pedido_sync, pedido_id)
 
 

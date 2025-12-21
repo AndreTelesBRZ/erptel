@@ -31,6 +31,7 @@
       <tr>
         <th>ID</th>
         <th>Cliente</th>
+        <th>Vendedor</th>
         <th>Data do pedido</th>
         <th>Recebido em</th>
         <th>Status</th>
@@ -44,6 +45,7 @@
       <tr>
         <td><strong><a href="{% url 'sales:api_order_detail' order.pk %}">#{{ order.pk }}</a></strong></td>
         <td>{{ order.cliente }}</td>
+        <td>{{ order.vendedor_nome|default:"—" }}</td>
         <td>{{ order.data_criacao|date:"d/m/Y H:i" }}</td>
         <td>{{ order.data_recebimento|date:"d/m/Y H:i" }}</td>
         <td>{{ order.get_status_display }}</td>
@@ -52,7 +54,7 @@
         <td class="has-text-right">R$ {{ order.total|floatformat:2 }}</td>
       </tr>
       {% empty %}
-      <tr><td colspan="8">Nenhum pedido encontrado.</td></tr>
+      <tr><td colspan="9">Nenhum pedido encontrado.</td></tr>
       {% endfor %}
     </tbody>
   </table>

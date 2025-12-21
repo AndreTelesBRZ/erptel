@@ -22,3 +22,56 @@ class ProdutoSync(models.Model):
         db_table = "vw_produtos_sync_preco_estoque"
         managed = False
         app_label = "api"
+
+
+class PlanoPagamentoCliente(models.Model):
+    cliente_codigo = models.CharField(max_length=20)
+    plano_codigo = models.CharField(max_length=20)
+    descricao = models.CharField(max_length=255, blank=True)
+    entrada_percentual = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    intervalo_primeira_parcela = models.IntegerField(null=True, blank=True)
+    intervalo_parcelas = models.IntegerField(null=True, blank=True)
+    quantidade_parcelas = models.IntegerField(null=True, blank=True)
+    valor_acrescimo = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    valor_minimo = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "plano_pagamentos_clientes"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["cliente_codigo", "plano_codigo"],
+                name="uniq_plano_pagamentos_clientes",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["cliente_codigo"], name="idx_plano_pag_cli"),
+        ]
+        app_label = "api"
+
+
+class Loja(models.Model):
+    codigo = models.CharField(max_length=20, unique=True)
+    razao_social = models.CharField(max_length=255, blank=True)
+    nome_fantasia = models.CharField(max_length=255, blank=True)
+    cnpj_cpf = models.CharField(max_length=20, blank=True)
+    ie_rg = models.CharField(max_length=50, blank=True)
+    tipo_pf_pj = models.CharField(max_length=4, blank=True)
+    telefone1 = models.CharField(max_length=50, blank=True)
+    telefone2 = models.CharField(max_length=50, blank=True)
+    endereco = models.CharField(max_length=255, blank=True)
+    bairro = models.CharField(max_length=100, blank=True)
+    numero = models.CharField(max_length=20, blank=True)
+    complemento = models.CharField(max_length=100, blank=True)
+    cep = models.CharField(max_length=20, blank=True)
+    email = models.CharField(max_length=255, blank=True)
+    cidade = models.CharField(max_length=100, blank=True)
+    estado = models.CharField(max_length=5, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "erp_lojas"
+        indexes = [
+            models.Index(fields=["codigo"], name="idx_erp_lojas_codigo"),
+        ]
+        app_label = "api"

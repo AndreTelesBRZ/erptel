@@ -11,3 +11,9 @@ python3 sync_produtos.py >> /home/ubuntu/apps/Django/sync/sync.log 2>&1
 
 # Executar a sincronização de CLIENTES e gravar log
 python3 sync_clientes.py >> /home/ubuntu/apps/Django/sync/sync.log 2>&1
+
+# Executar a sincronização de PLANOS DE PAGAMENTO e gravar log
+python3 sync_planos_pagamento_clientes.py >> /home/ubuntu/apps/Django/sync/sync.log 2>&1
+
+# Executar a sincronização de LOJAS e gravar log
+python3 sync_lojas.py >> /home/ubuntu/apps/Django/sync/sync.log 2>&1
