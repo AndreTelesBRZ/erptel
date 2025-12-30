@@ -1,7 +1,7 @@
 /* Fresh minimal theme for Django ERP */
 :root {
-  --bg-page: radial-gradient(140% 140% at 0% 0%, #fef7f1 0%, #f3f7fd 40%, #f1f3f8 100%);
-  --bg-page-dark: radial-gradient(120% 120% at 100% 0%, #0b1325 0%, #0a1a33 45%, #091427 100%);
+  --bg-page: radial-gradient(140% 140% at 0% 0%, #fdf6ea 0%, #f7efe3 45%, #f2eadf 100%);
+  --bg-page-dark: radial-gradient(120% 120% at 100% 0%, #0d1730 0%, #0b1f3a 45%, #0a182f 100%);
   --sidebar-bg: rgba(255, 255, 255, 0.94);
   --sidebar-border: rgba(12, 25, 54, 0.08);
   --topbar-bg: rgba(255, 255, 255, 0.92);
@@ -47,6 +47,8 @@ body.dark {
   --accent-soft: rgba(249, 115, 22, 0.24);
   --accent-strong: #fb923c;
   --accent-contrast: #0b1325;
+  --brand-blue: #38bdf8;
+  --brand-blue-strong: #60a5fa;
 }
 
 html {
@@ -377,6 +379,51 @@ body.erp-sidebar-collapsed .erp-nav a .icon {
 .topbar-user-link:hover {
   color: #111111;
   text-decoration: none;
+}
+.topbar-store-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(11, 31, 58, 0.24);
+  background: #f7f9fc;
+  color: #0b1f3a;
+  box-shadow: 0 8px 18px -14px rgba(11, 31, 58, 0.45);
+  transition: var(--transition-base);
+}
+.topbar-store-switch:not(.is-static):hover {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
+  transform: translateY(-1px);
+}
+.topbar-store-switch.is-disabled,
+.topbar-store-switch.is-disabled:hover,
+.topbar-store-switch[disabled] {
+  cursor: not-allowed;
+  opacity: 0.65;
+  transform: none;
+  border-color: rgba(11, 31, 58, 0.18);
+  color: #0b1f3a;
+}
+.topbar-store-switch .store-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.7;
+}
+.topbar-store-switch .store-code {
+  font-weight: 700;
+}
+.topbar-store-switch .store-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.topbar-store-switch.is-static {
+  cursor: default;
 }
 .topbar-user .user-avatar-image {
   width: 32px;
@@ -773,6 +820,39 @@ body.dark .table tbody tr:hover {
 }
 .table.is-compact tbody td {
   padding: 0.55rem 0.65rem;
+}
+
+/* Data alignment blocks */
+.erp-data-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: var(--grid-gap);
+}
+.data-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.data-pair.is-wide {
+  grid-column: span 2;
+}
+.data-label {
+  font-size: 0.7rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+.data-value {
+  font-weight: 600;
+  color: var(--color-heading);
+}
+.data-value.is-right {
+  text-align: right;
+}
+@media (max-width: 720px) {
+  .data-pair.is-wide {
+    grid-column: span 1;
+  }
 }
 
 /* Pagination */

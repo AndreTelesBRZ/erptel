@@ -7,7 +7,7 @@ from django.db import connection, transaction
 
 class Command(BaseCommand):
     help = (
-        'Espelha a view SQL Server dbo.vw_produtos_sync_preco_estoque '
+        'Espelha a(s) view(s) SQL Server configuradas em MSSQL_PRODUTOS_VIEWS '
         'para a tabela Postgres erp_produtos_sync (banco erptel).'
     )
 
@@ -84,11 +84,16 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         chunk_size = options['chunk_size'] or 1000
         limit = options.get('limit')
+        view_names = os.getenv(
+            'MSSQL_PRODUTOS_VIEWS',
+            'dbo.vw_produtos_sync_preco_estoque,dbo.vw_produtos_sync_preco_estoque_000003',
+        )
+        views = [v.strip() for v in view_names.split(',') if v.strip()]
 
         mssql_conn = self._get_mssql_conn()
         src_cursor = mssql_conn.cursor()
 
-        def build_sql(include_refplu: bool, include_rowhash: bool) -> str:
+        def build_sql(view_name: str, include_refplu: bool, include_rowhash: bool) -> str:
             select_prefix = "SELECT "
             if limit:
                 select_prefix += f"TOP ({int(limit)}) "
@@ -114,29 +119,7 @@ class Command(BaseCommand):
             if include_rowhash:
                 cols.append("RowHash")
             col_sql = ", ".join(cols)
-            return f"{select_prefix}{col_sql} FROM dbo.vw_produtos_sync_preco_estoque"
-
-        has_refplu = True
-        has_rowhash = True
-        sql = build_sql(include_refplu=True, include_rowhash=True)
-        try:
-            src_cursor.execute(sql)
-        except Exception as exc:
-            err = str(exc).lower()
-            if 'refplu' in err or 'ref plu' in err:
-                has_refplu = False
-            if 'rowhash' in err:
-                has_rowhash = False
-            if not has_refplu or not has_rowhash:
-                sql = build_sql(include_refplu=has_refplu, include_rowhash=has_rowhash)
-                try:
-                    src_cursor.execute(sql)
-                except Exception as exc2:
-                    mssql_conn.close()
-                    raise CommandError(f'Falha ao consultar a view no SQL Server: {exc2}')
-            else:
-                mssql_conn.close()
-                raise CommandError(f'Falha ao consultar a view no SQL Server: {exc}')
+            return f"{select_prefix}{col_sql} FROM {view_name}"
 
         insert_sql = """
             INSERT INTO erp_produtos_sync (
@@ -172,47 +155,70 @@ class Command(BaseCommand):
         try:
             with transaction.atomic():
                 with connection.cursor() as pg_cursor:
-                    while True:
-                        batch = src_cursor.fetchmany(chunk_size)
-                        if not batch:
-                            break
-                        payload = []
-                        for r in batch:
-                            codigo = (r.Codigo or '').strip()
-                            loja = (r.Loja or '').strip()
-                            if not codigo or not loja:
-                                continue
-                            preco_normal = self._decimal_or_none(r.PrecoNormal)
-                            preco_promocao1 = self._decimal_or_none(r.PrecoPromocao1)
-                            preco_promocao2 = self._decimal_or_none(r.PrecoPromocao2)
-                            custo = self._decimal_or_none(getattr(r, 'Custo', None))
-                            if preco_normal is None:
-                                preco_normal = next(
-                                    (p for p in (preco_promocao1, preco_promocao2) if p is not None),
-                                    None
-                                )
-                            payload.append({
-                                'codigo': codigo,
-                                'descricao_completa': (r.DescricaoCompleta or '').strip(),
-                                'referencia': (r.Referencia or '').strip() or None,
-                                'secao': (r.Secao or '').strip() or None,
-                                'grupo': (r.Grupo or '').strip() or None,
-                                'subgrupo': (r.Subgrupo or '').strip() or None,
-                                'unidade': (r.Unidade or '').strip() or None,
-                                'ean': (r.EAN or '').strip() or None,
-                                'plu': (r.PLU or '').strip() or None,
-                                'preco_normal': preco_normal,
-                                'preco_promocao1': preco_promocao1,
-                                'preco_promocao2': preco_promocao2,
-                                'custo': custo,
-                                'estoque_disponivel': self._decimal_or_none(r.EstoqueDisponivel),
-                                'loja': loja,
-                                'refplu': (getattr(r, 'REFPLU', None) or '').strip() or None if has_refplu else None,
-                                'row_hash': (getattr(r, 'RowHash', None) or '').strip() or None if has_rowhash else None,
-                            })
-                        for row in payload:
-                            pg_cursor.execute(insert_sql, row)
-                        processed += len(batch)
+                    for view_name in views:
+                        has_refplu = True
+                        has_rowhash = True
+                        sql = build_sql(view_name, include_refplu=True, include_rowhash=True)
+                        try:
+                            src_cursor.execute(sql)
+                        except Exception as exc:
+                            err = str(exc).lower()
+                            if 'refplu' in err or 'ref plu' in err:
+                                has_refplu = False
+                            if 'rowhash' in err:
+                                has_rowhash = False
+                            if not has_refplu or not has_rowhash:
+                                sql = build_sql(view_name, include_refplu=has_refplu, include_rowhash=has_rowhash)
+                                try:
+                                    src_cursor.execute(sql)
+                                except Exception as exc2:
+                                    mssql_conn.close()
+                                    raise CommandError(f'Falha ao consultar a view no SQL Server: {exc2}')
+                            else:
+                                mssql_conn.close()
+                                raise CommandError(f'Falha ao consultar a view no SQL Server: {exc}')
+
+                        while True:
+                            batch = src_cursor.fetchmany(chunk_size)
+                            if not batch:
+                                break
+                            payload = []
+                            for r in batch:
+                                codigo = (r.Codigo or '').strip()
+                                loja = (r.Loja or '').strip()
+                                if not codigo or not loja:
+                                    continue
+                                preco_normal = self._decimal_or_none(r.PrecoNormal)
+                                preco_promocao1 = self._decimal_or_none(r.PrecoPromocao1)
+                                preco_promocao2 = self._decimal_or_none(r.PrecoPromocao2)
+                                custo = self._decimal_or_none(getattr(r, 'Custo', None))
+                                if preco_normal is None:
+                                    preco_normal = next(
+                                        (p for p in (preco_promocao1, preco_promocao2) if p is not None),
+                                        None
+                                    )
+                                payload.append({
+                                    'codigo': codigo,
+                                    'descricao_completa': (r.DescricaoCompleta or '').strip(),
+                                    'referencia': (r.Referencia or '').strip() or None,
+                                    'secao': (r.Secao or '').strip() or None,
+                                    'grupo': (r.Grupo or '').strip() or None,
+                                    'subgrupo': (r.Subgrupo or '').strip() or None,
+                                    'unidade': (r.Unidade or '').strip() or None,
+                                    'ean': (r.EAN or '').strip() or None,
+                                    'plu': (r.PLU or '').strip() or None,
+                                    'preco_normal': preco_normal,
+                                    'preco_promocao1': preco_promocao1,
+                                    'preco_promocao2': preco_promocao2,
+                                    'custo': custo,
+                                    'estoque_disponivel': self._decimal_or_none(r.EstoqueDisponivel),
+                                    'loja': loja,
+                                    'refplu': (getattr(r, 'REFPLU', None) or '').strip() or None if has_refplu else None,
+                                    'row_hash': (getattr(r, 'RowHash', None) or '').strip() or None if has_rowhash else None,
+                                })
+                            for row in payload:
+                                pg_cursor.execute(insert_sql, row)
+                            processed += len(batch)
         finally:
             mssql_conn.close()
         self.stdout.write(self.style.SUCCESS(f'Processados {processed} registros (upsert em erp_produtos_sync).'))

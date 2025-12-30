@@ -44,7 +44,7 @@ def _counts_by_status(queryset, field_name: str, choices: list[tuple[str, str]])
     ]
 
 
-def get_sales_report(company=None) -> dict:
+def get_sales_report(company=None, loja_codigo: str | None = None) -> dict:
     today = timezone.localdate()
     last_30_days = today - timedelta(days=30)
 
@@ -60,6 +60,11 @@ def get_sales_report(company=None) -> dict:
         quotes = quotes.filter(company_id=company_id)
         order_items = order_items.filter(order__company_id=company_id)
         quote_items = quote_items.filter(quote__company_id=company_id)
+    if loja_codigo:
+        orders = orders.filter(loja_codigo=loja_codigo)
+        quotes = quotes.filter(loja_codigo=loja_codigo)
+        order_items = order_items.filter(order__loja_codigo=loja_codigo)
+        quote_items = quote_items.filter(quote__loja_codigo=loja_codigo)
 
     order_total_expr = ExpressionWrapper(
         F("quantity") * F("unit_price") - Coalesce(F("discount"), Value(ZERO_DECIMAL)),
@@ -182,9 +187,9 @@ def get_product_report(company=None) -> dict:
     }
 
 
-def get_report_context(company=None) -> dict:
+def get_report_context(company=None, loja_codigo: str | None = None) -> dict:
     return {
-        "sales_report": get_sales_report(company=company),
+        "sales_report": get_sales_report(company=company, loja_codigo=loja_codigo),
         "purchase_report": get_purchase_report(company=company),
         "product_report": get_product_report(company=company),
     }

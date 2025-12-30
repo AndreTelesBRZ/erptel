@@ -12,50 +12,46 @@
   </div>
 
   <div class="box">
-    <div class="columns">
-      <div class="column">
-        <p class="heading">Cliente</p>
-        <p class="title is-5">{{ order.cliente }}</p>
+    <div class="erp-data-grid">
+      <div class="data-pair is-wide">
+        <p class="data-label">Cliente</p>
+        <p class="data-value">{{ order.cliente }}</p>
       </div>
-      <div class="column">
-        <p class="heading">Data do pedido</p>
-        <p>{{ order.data_criacao|date:"d/m/Y H:i" }}</p>
+      <div class="data-pair">
+        <p class="data-label">Data do pedido</p>
+        <p class="data-value">{{ order.data_criacao|date:"d/m/Y H:i" }}</p>
       </div>
-      <div class="column">
-        <p class="heading">Recebido em</p>
-        <p>{{ order.data_recebimento|date:"d/m/Y H:i" }}</p>
+      <div class="data-pair">
+        <p class="data-label">Recebido em</p>
+        <p class="data-value">{{ order.data_recebimento|date:"d/m/Y H:i" }}</p>
       </div>
-      <div class="column">
-        <p class="heading">Total</p>
-        <p class="title is-5">R$ {{ order.total|floatformat:2 }}</p>
+      <div class="data-pair">
+        <p class="data-label">Total</p>
+        <p class="data-value is-right">R$ {{ order.total|floatformat:2 }}</p>
       </div>
-    </div>
-    <div class="columns">
-      <div class="column">
-        <p class="heading">Status</p>
-        <p>{{ order.get_status_display }}</p>
+      <div class="data-pair">
+        <p class="data-label">Status</p>
+        <p class="data-value">{{ order.get_status_display }}</p>
       </div>
-      <div class="column">
-        <p class="heading">Status do pagamento</p>
-        <p>{{ order.get_pagamento_status_display }}</p>
+      <div class="data-pair">
+        <p class="data-label">Status do pagamento</p>
+        <p class="data-value">{{ order.get_pagamento_status_display }}</p>
       </div>
-      <div class="column">
-        <p class="heading">Forma de pagamento</p>
-        <p>{{ order.forma_pagamento|default:"—" }}</p>
+      <div class="data-pair">
+        <p class="data-label">Forma de pagamento</p>
+        <p class="data-value">{{ order.forma_pagamento|default:"—" }}</p>
       </div>
-      <div class="column">
-        <p class="heading">Frete</p>
-        <p>{{ order.get_frete_modalidade_display }}</p>
+      <div class="data-pair">
+        <p class="data-label">Frete</p>
+        <p class="data-value">{{ order.get_frete_modalidade_display }}</p>
       </div>
-    </div>
-    <div class="columns">
-      <div class="column">
-        <p class="heading">Vendedor (código)</p>
-        <p>{{ order.vendedor_codigo|default:"—" }}</p>
+      <div class="data-pair">
+        <p class="data-label">Vendedor (código)</p>
+        <p class="data-value">{{ order.vendedor_codigo|default:"—" }}</p>
       </div>
-      <div class="column">
-        <p class="heading">Vendedor (nome)</p>
-        <p>{{ order.vendedor_nome|default:"—" }}</p>
+      <div class="data-pair">
+        <p class="data-label">Vendedor (nome)</p>
+        <p class="data-value">{{ order.vendedor_nome|default:"—" }}</p>
       </div>
     </div>
   </div>

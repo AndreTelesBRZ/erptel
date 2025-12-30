@@ -99,6 +99,7 @@ MIDDLEWARE = [
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'core.middleware.ActiveCompanyMiddleware',
+    'core.middleware.ActiveLojaMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
@@ -117,6 +118,7 @@ TEMPLATES = [
                     'django.contrib.auth.context_processors.auth',
                     'django.contrib.messages.context_processors.messages',
                     'core.context_processors.active_company',
+                    'core.context_processors.active_loja',
                     'core.context_processors.user_profile',
             ],
         },
@@ -211,6 +213,16 @@ CORS_ALLOW_HEADERS = list(default_headers) + ['x-app-token']
 
 # Token de integração usado pelo app React (opcional; se vazio, permissão libera)
 APP_INTEGRATION_TOKEN = os.getenv('APP_INTEGRATION_TOKEN', '')
+
+# Loja sync via external API (FastAPI).
+LOJAS_API_BASE_URL = os.getenv('LOJAS_API_BASE_URL', '').rstrip('/')
+LOJAS_API_PATH = os.getenv('LOJAS_API_PATH', '/api/lojas')
+LOJAS_API_TOKEN = os.getenv('LOJAS_API_TOKEN', '')
+LOJAS_API_AUTH_HEADER = os.getenv('LOJAS_API_AUTH_HEADER', 'X-App-Token')
+try:
+    LOJAS_API_TIMEOUT = int(os.getenv('LOJAS_API_TIMEOUT', '10'))
+except ValueError:
+    LOJAS_API_TIMEOUT = 10
 
 
 # Password validation

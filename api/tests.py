@@ -184,6 +184,7 @@ class PedidoIntegrationAPITests(APITestCase):
 			"data_criacao": timezone.now().isoformat(),
 			"total": "20.00",
 			"cliente_id": self.client_obj.id,
+			"loja_codigo": "00077",
 			"itens": [
 				{"codigo_produto": self.product.id, "quantidade": "2", "valor_unitario": "10.00"}
 			],
@@ -193,8 +194,13 @@ class PedidoIntegrationAPITests(APITestCase):
 		body = resp.json()
 		self.assertIsNotNone(body.get("id"))
 		self.assertEqual(body["total"], "20.00")
+		self.assertEqual(body["loja_codigo"], "00077")
 		self.assertEqual(len(body["itens"]), 1)
 		self.assertEqual(body["itens"][0]["subtotal"], "20.00")
+		self.assertEqual(
+			ItemPedido.objects.filter(pedido_id=body["id"]).values_list("loja_codigo", flat=True).first(),
+			"00077",
+		)
 
 		# Listagem inclui o pedido criado
 		list_resp = self.client.get(url)
@@ -235,3 +241,26 @@ class PedidoIntegrationAPITests(APITestCase):
 		results = resp.json()["results"]
 		self.assertTrue(any(p["id"] == pedido_recente.id for p in results))
 		self.assertFalse(any(p["id"] == pedido_antigo.id for p in results))
+
+	def test_update_pedido_status(self):
+		pedido = Pedido.objects.create(
+			cliente=self.client_obj,
+			data_criacao=timezone.now(),
+			total=Decimal('10.00'),
+		)
+		url = reverse('api-pedido-status', args=[pedido.pk])
+		resp = self.client.put(url, {"status": Pedido.Status.FATURADO}, format='json')
+		self.assertEqual(resp.status_code, status.HTTP_200_OK)
+		pedido.refresh_from_db()
+		self.assertEqual(pedido.status, Pedido.Status.FATURADO)
+		self.assertEqual(resp.json()["status"], Pedido.Status.FATURADO)
+
+	def test_update_pedido_status_invalid(self):
+		pedido = Pedido.objects.create(
+			cliente=self.client_obj,
+			data_criacao=timezone.now(),
+			total=Decimal('10.00'),
+		)
+		url = reverse('api-pedido-status', args=[pedido.pk])
+		resp = self.client.put(url, {"status": "invalido"}, format='json')
+		self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)

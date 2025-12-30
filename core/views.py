@@ -29,7 +29,7 @@ from products.models import (
 	ProductGroup,
 	ProductSubGroup,
 )
-from .middleware import ActiveCompanyMiddleware
+from .middleware import ActiveCompanyMiddleware, ActiveLojaMiddleware
 from clients.models import Client
 from django.contrib.auth.decorators import login_required
 from django.urls import reverse
@@ -906,4 +906,28 @@ def switch_company(request):
 			messages.success(request, 'Empresa ativa atualizada.')
 		else:
 			messages.error(request, 'Você não tem acesso à empresa selecionada.')
+	return redirect(next_url)
+
+
+@login_required
+def switch_loja(request):
+	if request.method != 'POST':
+		return redirect('dashboard')
+	loja_codigo = (request.POST.get('loja_codigo') or '').strip()
+	next_url = request.POST.get('next') or request.META.get('HTTP_REFERER') or 'dashboard'
+	available_lojas = list(getattr(request, 'available_lojas', []))
+	if not available_lojas:
+		from api.models import Loja
+		available_lojas = list(Loja.objects.all().order_by("codigo"))
+	from .utils.loja import find_loja_by_codigo
+	available_codes = {l.codigo for l in available_lojas}
+	if loja_codigo:
+		loja, normalized_codigo = find_loja_by_codigo(available_lojas, loja_codigo)
+		if available_codes and not loja:
+			messages.error(request, 'Loja selecionada não está disponível.')
+		else:
+			request.session[ActiveLojaMiddleware.session_key] = normalized_codigo or loja_codigo
+			messages.success(request, 'Loja ativa atualizada.')
+	else:
+		messages.error(request, 'Informe o código da loja.')
 	return redirect(next_url)

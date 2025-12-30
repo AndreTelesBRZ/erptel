@@ -1,0 +1,76 @@
+# Tenant Table Classification (public schema)
+
+## Shared (cadastro/system)
+- api_tokens
+- api_users
+- auth_group
+- auth_group_permissions
+- auth_permission
+- auth_user
+- auth_user_groups
+- auth_user_user_permissions
+- authtoken_token
+- clients_client
+- companies_company
+- core_emailconfiguration
+- core_salesconfiguration
+- core_sefazconfiguration
+- core_useraccessprofile
+- core_useraccessprofile_companies
+- core_useraccessprofile_roles
+- core_userrole
+- django_admin_log
+- django_content_type
+- django_migrations
+- django_session
+- erp_imagens
+- erp_clientes
+- erp_lojas
+- erp_produtos
+- erp_vendedores
+- products_brand
+- products_category
+- products_department
+- products_product
+- products_productgroup
+- products_productimage
+- products_productsubgroup
+- products_supplier
+- products_tag
+- products_tax
+- products_unitofmeasure
+- products_volume
+
+## Operational (loja required)
+- custos_costbatch
+- custos_costbatchitem
+- custos_costparameter
+- erp_clientes_vendedores
+- erp_produtos_precos
+- erp_produtos_estoque
+- erp_produtos_sync
+- estoque_collectorinventoryitem
+- estoque_inventory
+- estoque_inventoryitem
+- estoque_inventoryselection
+- finance_financeentry
+- plano_pagamentos_clientes
+- products_priceadjustmentbatch
+- products_priceadjustmentitem
+- products_priceadjustmentlog
+- products_product_companies
+- products_productstock
+- products_supplierproductprice
+- purchases_purchaseorder
+- sales_itempedido
+- sales_order
+- sales_orderitem
+- sales_pedido
+- sales_quote
+- sales_quoteitem
+- sales_salesperson
+
+## Notes
+- New shared tables introduced by the hybrid model: `erp_clientes`, `erp_produtos`.
+- `erp_produtos_sync` is operational today; after migration it should be deprecated in favor of `erp_produtos` + `erp_produtos_precos` + `erp_produtos_estoque`.
+- Some operational tables still use `company_id` instead of `loja_codigo` and need a mapping decision before adding loja fields.

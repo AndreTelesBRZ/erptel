@@ -178,6 +178,21 @@ export DATABASE_URL='postgres://meuuser:senh@segura@127.0.0.1:5432/meubanco'
 - Listar pedidos recebidos: `GET /api/pedidos-venda/?recebido_depois=2025-01-01T00:00:00-03:00` (paginado). Também aceita `cliente_id`, `cliente_codigo`, `recebido_ate`, `criado_depois` e `criado_ate`.
 - Detalhe: `GET /api/pedidos-venda/<id>/` retorna dados do cliente e itens com subtotal.
 
+## Sincronização de inadimplência
+
+A sincronização de inadimplência roda como tarefa em background no Django.
+
+Variáveis de ambiente suportadas:
+- `INADIMPLENCIA_SYNC_TIMES`: horários (HH:MM) separados por vírgula. Ex.: `09:00,15:00` (padrão).
+- `INADIMPLENCIA_SYNC_DISABLED`: `true` para desabilitar o agendador.
+- `SQLSERVER_HOST`: host do SQL Server (padrão `10.0.0.60`).
+- `SQLSERVER_PORT`: porta do SQL Server (padrão `1433`).
+- `SQLSERVER_DB`: banco do SQL Server (padrão `SysacME`).
+- `SQLSERVER_USER`: usuário (padrão `sync_erptel`).
+- `SQLSERVER_PASSWORD`: senha (padrão `SenhaForte@2025`).
+- `SQLSERVER_ENCRYPT`: `yes`/`no` (padrão `yes`).
+- `SQLSERVER_TRUST_CERT`: `yes`/`no` (padrão `yes`).
+
 2) Migre os dados do SQLite para Postgres
 
 Opção A (script automatizado):
@@ -226,5 +241,5 @@ Observação: em Postgres, a busca aceita curingas ordenados (`par%franc%x3`) e 
 - Garanta o driver ODBC do SQL Server instalado no Ubuntu (Driver 18): `sudo /opt/microsoft/msodbcsql18/bin/mssql-conf verify` ou instale conforme docs da Microsoft.
 - Preencha `.env` com as variáveis `MSSQL_HOST/PORT/DB/USER/PASSWORD` e, se usar o driver 18, mantenha `MSSQL_TRUST_CERT=yes` (o padrão `MSSQL_DRIVER="ODBC Driver 18 for SQL Server"` já está no arquivo).
 - Rode as migrações para criar a tabela de staging e a view consumida pelo Django: `python manage.py migrate products`.
-- Execute a sincronização manual quando precisar: `python manage.py mirror_products_sync --chunk-size 1000`. Ela faz upsert em `erp_produtos_sync` e expõe os dados na view `vw_produtos_sync_preco_estoque` usada pelo app.
+- Execute a sincronização manual quando precisar: `python manage.py mirror_products_sync --chunk-size 1000`. Ela faz upsert em `erp_produtos_sync` e expõe os dados na view `vw_produtos_sync_preco_estoque` usada pelo app (a origem no SQL Server vem de `MSSQL_PRODUTOS_VIEWS`, lista separada por vírgulas).
 - Para automatizar, agende no cron/systemd um job chamando o comando acima (ex.: a cada 15 minutos) e monitore o log de saída para eventuais falhas de conexão.

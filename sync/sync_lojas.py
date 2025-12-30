@@ -24,6 +24,8 @@ API_LOGIN_URL = os.getenv("API_LOGIN_URL", f"{API_BASE}/auth/login")
 API_USERNAME = os.getenv("API_USERNAME", "apiadmin")
 API_PASSWORD = os.getenv("API_PASSWORD", "TroqueEstaSenha!")
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "60"))
+API_TENANT_DOMAIN = os.getenv("API_TENANT_DOMAIN", "")
+API_TENANT_HEADER = os.getenv("API_TENANT_HEADER", "X-Forwarded-Host")
 BATCH_SIZE = int(os.getenv("LOJAS_BATCH_SIZE", "500"))
 
 LOG_FILE = "/home/ubuntu/apps/Django/sync/sync.log"
@@ -56,10 +58,20 @@ FROM dbo.V_LOJA
 """
 
 
+def _build_headers(token=None):
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if API_TENANT_DOMAIN:
+        headers[API_TENANT_HEADER] = API_TENANT_DOMAIN
+    return headers
+
+
 def _obter_token():
     resp = requests.post(
         API_LOGIN_URL,
         json={"username": API_USERNAME, "password": API_PASSWORD},
+        headers=_build_headers(),
         timeout=API_TIMEOUT,
     )
     resp.raise_for_status()
@@ -93,7 +105,7 @@ def send_batch(batch):
     resp = requests.post(
         API_URL,
         json=batch,
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_build_headers(token),
         timeout=API_TIMEOUT,
     )
     if resp.status_code != 200:

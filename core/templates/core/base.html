@@ -13,7 +13,7 @@
     {# Fallback inline theme so the app stays styled even if static files are not served #}
     <style>
       :root {
-        --bg-page: radial-gradient(140% 140% at 0% 0%, #fef7f1 0%, #f3f7fd 40%, #f1f3f8 100%);
+        --bg-page: radial-gradient(140% 140% at 0% 0%, #fdf6ea 0%, #f7efe3 45%, #f2eadf 100%);
         --sidebar-bg: rgba(255, 255, 255, 0.94);
         --sidebar-border: rgba(12, 25, 54, 0.08);
         --surface-bg: rgba(255, 255, 255, 0.96);
@@ -83,6 +83,12 @@
       .table thead th { text-transform: uppercase; letter-spacing: 0.12em; font-size: 0.7rem; color: var(--color-text-muted); padding: 0.65rem; background: rgba(14,165,233,0.08); }
       .table tbody td { padding: 0.7rem; border-bottom: 1px solid rgba(15, 23, 42, 0.06); }
       .topbar-user { display: inline-flex; align-items: center; gap: 0.45rem; }
+      .topbar-store {
+        border-color: var(--surface-border);
+        background: rgba(14, 165, 233, 0.08);
+        color: var(--color-heading);
+      }
+      .topbar-store .store-code { font-weight: 700; }
       .user-avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #f97316, #0ea5e9); color: #fff; font-weight: 700; }
       @media (max-width: 1024px) {
         .erp-layout { flex-direction: column; }
@@ -113,19 +119,6 @@
                 {% block topbar_subtitle %}
                 {% endblock %}
               </div>
-              {% if available_companies %}
-                <form method="post" action="{% url 'core:switch_company' %}" class="company-switch-form">
-                  {% csrf_token %}
-                  <input type="hidden" name="next" value="{{ request.get_full_path }}">
-                  <div class="select is-small" style="margin-left:1rem;">
-                    <select name="company_id" onchange="this.form.submit()" aria-label="Selecionar empresa">
-                      {% for company in available_companies %}
-                        <option value="{{ company.pk }}" {% if active_company and company.pk == active_company.pk %}selected{% endif %}>{{ company.trade_name|default:company.name }}</option>
-                      {% endfor %}
-                    </select>
-                  </div>
-                </form>
-              {% endif %}
             </div>
             <div class="topbar-search" style="margin-left:1rem; flex: 1; max-width:520px;">
               {% with request.resolver_match as match %}
@@ -170,6 +163,19 @@
                     </a>
                   {% endwith %}
                 {% endwith %}
+                {% if available_lojas|length > 1 %}
+                  <button class="topbar-store-switch" type="button" data-store-switch-open aria-label="Trocar loja">
+                    <span class="store-label">Loja ativa</span>
+                    <span class="store-code">{{ active_loja.codigo|default:request.loja_codigo|default:"-" }}</span>
+                    <span class="store-name">{{ active_loja.nome_fantasia|default:active_loja.razao_social|default:"Loja sem cadastro" }}</span>
+                  </button>
+                {% else %}
+                  <span class="topbar-store-switch is-static" aria-label="Loja ativa">
+                    <span class="store-label">Loja ativa</span>
+                    <span class="store-code">{{ active_loja.codigo|default:request.loja_codigo|default:"-" }}</span>
+                    <span class="store-name">{{ active_loja.nome_fantasia|default:active_loja.razao_social|default:"Loja sem cadastro" }}</span>
+                  </span>
+                {% endif %}
                 <span aria-hidden="true">•</span>
                 <form method="post" action="{% url 'logout' %}" style="display:inline;">
                   {% csrf_token %}
@@ -204,6 +210,16 @@
                       {{ message }}
                     </div>
                   {% endfor %}
+                </div>
+              {% endif %}
+
+              {% if user.is_superuser %}
+                <div class="notification is-warning">
+                  <strong>Debug loja:</strong>
+                  total={{ available_lojas|length }},
+                  active={{ active_loja.codigo|default:"-" }},
+                  req_codigo={{ request.loja_codigo|default:"-" }},
+                  session_codigo={{ request.session.active_loja_codigo|default:"-" }}
                 </div>
               {% endif %}
 
@@ -265,9 +281,50 @@
       </div>
     </div>
 
+    {% if available_lojas|length > 1 %}
+      <div id="store-switch-modal" class="modal" aria-hidden="true" data-store-switch-modal>
+        <div class="modal-background" data-store-switch-close></div>
+        <div class="modal-card">
+          <header class="modal-card-head">
+            <p class="modal-card-title">Trocar loja</p>
+            <button class="delete" aria-label="Fechar" type="button" data-store-switch-close></button>
+          </header>
+          <section class="modal-card-body">
+            <form method="post" action="{% url 'core:switch_loja' %}">
+              {% csrf_token %}
+              <input type="hidden" name="next" value="{{ request.get_full_path }}">
+              <div class="field">
+                <label class="label">Loja</label>
+                <div class="control">
+                  <div class="select is-fullwidth">
+                    <select name="loja_codigo" required>
+                      {% for loja in available_lojas %}
+                        <option value="{{ loja.codigo }}" {% if active_loja and loja.codigo == active_loja.codigo %}selected{% endif %}>
+                          {{ loja.codigo }} - {{ loja.nome_fantasia|default:loja.razao_social|default:"Loja sem cadastro" }}
+                        </option>
+                      {% endfor %}
+                    </select>
+                  </div>
+                </div>
+              </div>
+              <div class="field is-grouped is-justify-content-flex-end">
+                <div class="control">
+                  <button class="button" type="button" data-store-switch-close>Cancelar</button>
+                </div>
+                <div class="control">
+                  <button class="button is-primary" type="submit">Atualizar</button>
+                </div>
+              </div>
+            </form>
+          </section>
+        </div>
+      </div>
+    {% endif %}
+
     <script src="{% static 'js/darkmode.js' %}"></script>
     <script src="{% static 'js/image_modal.js' %}"></script>
     <script src="{% static 'js/sidebar.js' %}"></script>
+    <script src="{% static 'js/store_switch.js' %}"></script>
     <script>
       window.APP_LOOKUP_URLS = {
         clients: "{% url 'core:lookup' 'clients' %}",

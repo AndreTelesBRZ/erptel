@@ -5,6 +5,9 @@ from typing import Any, Callable
 from django.utils.functional import cached_property
 
 from companies.models import Company
+from api.models import Loja
+from .lojas_sync import sync_lojas_from_api
+from .utils.loja import find_loja_by_codigo, normalize_loja_codigo
 
 
 class ActiveCompanyMiddleware:
@@ -37,6 +40,41 @@ class ActiveCompanyMiddleware:
                 company = request.available_companies[0]
                 request.session[self.session_key] = company.pk
             request.company = company
+
+        response = self.get_response(request)
+        return response
+
+
+class ActiveLojaMiddleware:
+    """
+    Attach the active store (loja) to each request using the session.
+    """
+
+    session_key = "active_loja_codigo"
+
+    def __init__(self, get_response: Callable[[Any], Any]) -> None:
+        self.get_response = get_response
+
+    def __call__(self, request):
+        request.available_lojas = []
+        request.loja = None
+        request.loja_codigo = None
+
+        if request.user.is_authenticated:
+            if not Loja.objects.exists():
+                try:
+                    sync_lojas_from_api()
+                except Exception:
+                    pass
+            request.available_lojas = list(Loja.objects.all().order_by("codigo"))
+            loja_codigo = request.session.get(self.session_key)
+            loja, normalized_codigo = find_loja_by_codigo(request.available_lojas, loja_codigo)
+            if not loja and request.available_lojas:
+                loja = request.available_lojas[0]
+                normalized_codigo = normalize_loja_codigo(loja.codigo, [l.codigo for l in request.available_lojas])
+                request.session[self.session_key] = normalized_codigo or loja.codigo
+            request.loja = loja
+            request.loja_codigo = normalized_codigo or (loja.codigo if loja else loja_codigo)
 
         response = self.get_response(request)
         return response

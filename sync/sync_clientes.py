@@ -29,6 +29,8 @@ API_LOGIN_URL = os.getenv("API_LOGIN_URL", f"{API_BASE}/auth/login")
 API_USERNAME = os.getenv("API_USERNAME", "apiadmin")
 API_PASSWORD = os.getenv("API_PASSWORD", "TroqueEstaSenha!")
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "60"))
+API_TENANT_DOMAIN = os.getenv("API_TENANT_DOMAIN", "")
+API_TENANT_HEADER = os.getenv("API_TENANT_HEADER", "X-Forwarded-Host")
 
 # ---------- LOTE ----------
 # Use BATCH_SIZE<=0 para enviar tudo em um único lote (sem limitação)
@@ -47,103 +49,47 @@ logging.basicConfig(
 # SQL ORIGEM
 # ==================================================
 
-SQL_SELECT = """
-SELECT
-    cliente_codigo,
-    cliente_razao_social,
-    cliente_nome_fantasia,
-    cliente_cnpj_cpf,
-    cliente_tipo_pf_pj,
-    cliente_endereco,
-    cliente_numero,
-    cliente_bairro,
-    cliente_cidade,
-    cliente_uf,
-    cliente_cep,
-    cliente_telefone1,
-    cliente_telefone2,
-    cliente_email,
-    cliente_inscricao_municipal,
-    vendedor_codigo,
-    vendedor_nome,
-    DATA_ULTIMA_VENDA AS ultima_venda_data,
-    VALOR_ULTIMA_VENDA AS ultima_venda_valor
-FROM dbo.vw_clientes_com_vendedor
-"""
+VIEW_NAME = "dbo.vw_clientes_com_vendedor_geral"
 
-SQL_SELECT_FALLBACK = """
-SELECT
-    cliente_codigo,
-    cliente_razao_social,
-    cliente_nome_fantasia,
-    cliente_cnpj_cpf,
-    cliente_tipo_pf_pj,
-    cliente_endereco,
-    cliente_numero,
-    cliente_bairro,
-    cliente_cidade,
-    cliente_uf,
-    cliente_cep,
-    cliente_telefone1,
-    cliente_telefone2,
-    cliente_email,
-    cliente_inscricao_municipal,
-    vendedor_codigo,
-    vendedor_nome,
-    DATA_ULTIMA_VENDA AS ultima_venda_data,
-    VALOR_ULTIMA_VENDA AS ultima_venda_valor
-FROM dbo.vw_clientes_com_vendedor
-"""
 
-SQL_SELECT_FALLBACK_NO_STATUS_VENDOR = """
-SELECT
-    cliente_codigo,
-    cliente_razao_social,
-    cliente_nome_fantasia,
-    cliente_cnpj_cpf,
-    cliente_tipo_pf_pj,
-    cliente_endereco,
-    cliente_numero,
-    cliente_bairro,
-    cliente_cidade,
-    cliente_uf,
-    cliente_cep,
-    cliente_telefone1,
-    cliente_telefone2,
-    cliente_email,
-    cliente_inscricao_municipal,
-    vendedor_codigo,
-    NULL AS vendedor_nome,
-    DATA_ULTIMA_VENDA AS ultima_venda_data,
-    VALOR_ULTIMA_VENDA AS ultima_venda_valor
-FROM dbo.vw_clientes_com_vendedor
-"""
+def _fetch_view_columns(cur):
+    cur.execute(f"SELECT TOP 0 * FROM {VIEW_NAME}")
+    return {col[0].lower(): col[0] for col in cur.description}
 
-SQL_SELECT_FALLBACK_NO_SALES = """
-SELECT
-    cliente_codigo,
-    cliente_razao_social,
-    cliente_nome_fantasia,
-    cliente_cnpj_cpf,
-    cliente_tipo_pf_pj,
-    cliente_endereco,
-    cliente_numero,
-    cliente_bairro,
-    cliente_cidade,
-    cliente_uf,
-    cliente_cep,
-    cliente_telefone1,
-    cliente_telefone2,
-    cliente_email,
-    cliente_inscricao_municipal,
-    vendedor_codigo,
-    vendedor_nome,
-    NULL AS ultima_venda_data,
-    NULL AS ultima_venda_valor
-FROM dbo.vw_clientes_com_vendedor
-"""
 
-SQL_SELECT_FALLBACK_NO_SALES_NO_VENDOR = """
+def _column_expr(columns, candidates, alias):
+    for candidate in candidates:
+        col = columns.get(candidate.lower())
+        if col:
+            return f"{col} AS {alias}"
+    return f"NULL AS {alias}"
+
+
+def _build_select(columns):
+    vendedor_nome = _column_expr(columns, ["vendedor_nome", "vendedor"], "vendedor_nome")
+    ultima_venda_data = _column_expr(
+        columns,
+        ["data_ultima_venda", "ultima_venda_data"],
+        "ultima_venda_data",
+    )
+    ultima_venda_valor = _column_expr(
+        columns,
+        ["valor_ultima_venda", "ultima_venda_valor"],
+        "ultima_venda_valor",
+    )
+    limite_credito = _column_expr(
+        columns,
+        [
+            "limite_credito",
+            "limite_credito_cliente",
+            "limite_credito_total",
+            "limite_de_credito",
+            "credito_limite",
+        ],
+        "limite_credito",
+    )
+    row_hash = _column_expr(columns, ["row_hash", "rowhash", "row_hash_cliente"], "row_hash")
+    return f"""
 SELECT
     cliente_codigo,
     cliente_razao_social,
@@ -160,11 +106,13 @@ SELECT
     cliente_telefone2,
     cliente_email,
     cliente_inscricao_municipal,
+    {limite_credito},
+    {row_hash},
     vendedor_codigo,
-    NULL AS vendedor_nome,
-    NULL AS ultima_venda_data,
-    NULL AS ultima_venda_valor
-FROM dbo.vw_clientes_com_vendedor
+    {vendedor_nome},
+    {ultima_venda_data},
+    {ultima_venda_valor}
+FROM {VIEW_NAME}
 """
 
 # ==================================================
@@ -180,21 +128,19 @@ def fetch_clientes():
         conn = pyodbc.connect(SQLSERVER_CONN_STR, timeout=10)
         cur = conn.cursor()
 
-        try:
-            cur.execute(SQL_SELECT)
-        except pyodbc.ProgrammingError as exc:
-            err = str(exc).lower()
-            if "vendedor_nome" in err and "ultima_venda" in err:
-                logging.warning("View sem colunas vendedor_nome/ultima_venda; usando fallback nulo")
-                cur.execute(SQL_SELECT_FALLBACK_NO_SALES_NO_VENDOR)
-            elif "vendedor_nome" in err:
-                logging.warning("View sem coluna vendedor_nome; usando fallback com valor nulo")
-                cur.execute(SQL_SELECT_FALLBACK_NO_STATUS_VENDOR)
-            elif "ultima_venda" in err:
-                logging.warning("View sem colunas de última venda; usando fallback com valores nulos")
-                cur.execute(SQL_SELECT_FALLBACK_NO_SALES)
-            else:
-                raise
+        columns_map = _fetch_view_columns(cur)
+        sql = _build_select(columns_map)
+        if "limite_credito" not in columns_map:
+            logging.warning("View sem coluna limite_credito; usando valor nulo")
+        if "row_hash" not in columns_map and "rowhash" not in columns_map:
+            logging.warning("View sem coluna row_hash/rowhash; usando valor nulo")
+        if "vendedor_nome" not in columns_map and "vendedor" not in columns_map:
+            logging.warning("View sem coluna vendedor_nome; usando valor nulo")
+        if "data_ultima_venda" not in columns_map and "ultima_venda_data" not in columns_map:
+            logging.warning("View sem coluna data_ultima_venda; usando valor nulo")
+        if "valor_ultima_venda" not in columns_map and "ultima_venda_valor" not in columns_map:
+            logging.warning("View sem coluna valor_ultima_venda; usando valor nulo")
+        cur.execute(sql)
         columns = [col[0] for col in cur.description]
         rows = cur.fetchall()
 
@@ -219,6 +165,13 @@ def fetch_clientes():
                     item["ultima_venda_valor"] = float(item["ultima_venda_valor"])
                 except Exception:
                     pass
+            if "limite_credito" in item and item["limite_credito"] is not None:
+                try:
+                    item["limite_credito"] = float(item["limite_credito"])
+                except Exception:
+                    pass
+            if "row_hash" in item and item["row_hash"] is not None:
+                item["row_hash"] = str(item["row_hash"])
 
             clientes.append(item)
 
@@ -235,13 +188,22 @@ def fetch_clientes():
             conn.close()
 
 
+def _build_headers(token=None):
+    headers = {}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    if API_TENANT_DOMAIN:
+        headers[API_TENANT_HEADER] = API_TENANT_DOMAIN
+    return headers
+
+
 def send_batch(batch):
     """Envia lote para API"""
     token = _obter_token()
     resp = requests.post(
         API_URL,
         json=batch,
-        headers={"Authorization": f"Bearer {token}"},
+        headers=_build_headers(token),
         timeout=API_TIMEOUT
     )
 
@@ -263,6 +225,7 @@ def _obter_token():
     resp = requests.post(
         API_LOGIN_URL,
         json={"username": API_USERNAME, "password": API_PASSWORD},
+        headers=_build_headers(),
         timeout=API_TIMEOUT,
     )
     resp.raise_for_status()
@@ -284,7 +247,7 @@ def main():
     total = len(clientes)
 
     if total == 0:
-        logging.warning("Nenhum cliente encontrado na view vw_clientes_com_vendedor")
+        logging.warning("Nenhum cliente encontrado na view vw_clientes_com_vendedor_geral")
         return
 
     logging.info(f"Total de clientes encontrados: {total}")

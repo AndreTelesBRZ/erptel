@@ -272,6 +272,9 @@ def sync_list(request):
 			F('codigo'),
 		)
 	)
+	loja_codigo = getattr(request, "loja_codigo", None)
+	if loja_codigo:
+		qs = qs.filter(loja=loja_codigo)
 	if q:
 		qs = filter_products_by_search(qs, q, fields=['codigo', 'descricao', 'ean', 'referencia', 'plu', 'reference'])
 

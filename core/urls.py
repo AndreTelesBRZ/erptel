@@ -16,4 +16,5 @@ urlpatterns = [
     path('settings/api-tokens/', views.api_user_tokens, name='settings_api_tokens'),
     path('settings/api-tokens/<int:user_id>/', views.api_user_edit, name='settings_api_tokens_edit'),
     path('company/switch/', views.switch_company, name='switch_company'),
+    path('loja/switch/', views.switch_loja, name='switch_loja'),
 ]

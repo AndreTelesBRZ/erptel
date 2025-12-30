@@ -26,26 +26,27 @@ class ProdutoSync(models.Model):
 
 class PlanoPagamentoCliente(models.Model):
     cliente_codigo = models.CharField(max_length=20)
+    loja_codigo = models.CharField(max_length=10, default="00001")
     plano_codigo = models.CharField(max_length=20)
-    descricao = models.CharField(max_length=255, blank=True)
-    entrada_percentual = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
-    intervalo_primeira_parcela = models.IntegerField(null=True, blank=True)
-    intervalo_parcelas = models.IntegerField(null=True, blank=True)
-    quantidade_parcelas = models.IntegerField(null=True, blank=True)
+    plano_descricao = models.CharField(max_length=255, blank=True)
+    parcelas = models.IntegerField(null=True, blank=True)
+    dias_primeira_parcela = models.IntegerField(null=True, blank=True)
+    dias_entre_parcelas = models.IntegerField(null=True, blank=True)
     valor_acrescimo = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
     valor_minimo = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        db_table = "plano_pagamentos_clientes"
+        db_table = "plano_pagamento_cliente"
         constraints = [
             models.UniqueConstraint(
-                fields=["cliente_codigo", "plano_codigo"],
+                fields=["cliente_codigo", "loja_codigo", "plano_codigo"],
                 name="uniq_plano_pagamentos_clientes",
             )
         ]
         indexes = [
             models.Index(fields=["cliente_codigo"], name="idx_plano_pag_cli"),
+            models.Index(fields=["loja_codigo"], name="idx_plano_pag_cli_loja"),
         ]
         app_label = "api"
 

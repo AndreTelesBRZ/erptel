@@ -15,6 +15,7 @@ class FinanceEntry(models.Model):
     due_date = models.DateField('Vencimento', blank=True, null=True)
     paid = models.BooleanField('Liquidado', default=False)
     notes = models.TextField('Observações', blank=True)
+    loja_codigo = models.CharField('Loja', max_length=10, default='00001')
     created_at = models.DateTimeField('Criado em', default=timezone.now, editable=False)
     updated_at = models.DateTimeField('Atualizado em', auto_now=True)
 

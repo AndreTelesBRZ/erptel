@@ -1,0 +1,3 @@
+cliente_codigo,loja_codigo,plano_codigo,plano_descricao,parcelas,dias_entre_parcelas,valor_minimo,valor_acrescimo
+todos,00001,DINHEIRO,Dinheiro,0,0,0,0
+todos,00003,DINHEIRO,Dinheiro,0,0,0,0

@@ -3,6 +3,11 @@
 # Ativar o MESMO ambiente virtual que você usa manualmente
 source /home/ubuntu/apps/Django/venv/bin/activate
 
+# Carregar variáveis do ambiente (inclui API_TENANT_DOMAIN)
+set -a
+source /home/ubuntu/apps/Django/.env
+set +a
+
 # Ir para a pasta do script
 cd /home/ubuntu/apps/Django/sync
 
@@ -17,3 +22,5 @@ python3 sync_planos_pagamento_clientes.py >> /home/ubuntu/apps/Django/sync/sync.
 
 # Executar a sincronização de LOJAS e gravar log
 python3 sync_lojas.py >> /home/ubuntu/apps/Django/sync/sync.log 2>&1
+
+python3 sync_inadimplencia.py >> /home/ubuntu/apps/Django/sync/sync.log 2>&1

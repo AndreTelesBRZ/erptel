@@ -1,7 +1,10 @@
 from django.core.exceptions import ValidationError
+import logging
 from django.shortcuts import get_object_or_404
 
 from rest_framework import viewsets, permissions, status, mixins
+from rest_framework.authentication import SessionAuthentication
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.authtoken.views import ObtainAuthToken
@@ -11,6 +14,7 @@ from .models import ProdutoSync, PlanoPagamentoCliente, Loja
 from .serializers import (
 	ProdutoSyncSerializer,
 	PedidoSerializer,
+	PedidoStatusSerializer,
 	ClienteSyncSerializer,
 	PlanoPagamentoClienteSerializer,
 	LojaSerializer,
@@ -23,12 +27,39 @@ from companies.services import (
 	serialize_nfe_document,
 	has_configured_sefaz_certificate,
 )
-from .permissions import HasAppToken
+from .permissions import HasAppToken, HasAppTokenOrAuthenticated
 from sales.models import Pedido
-from django.db import transaction
+from django.db import transaction, models
+from decimal import Decimal, InvalidOperation
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 from clients.models import ClienteSync
+from django.conf import settings
+
+logger = logging.getLogger("api.planos_pagamento")
+
+
+def _is_admin_user(user) -> bool:
+	if not user or not user.is_authenticated:
+		return False
+	if user.is_superuser or user.is_staff:
+		return True
+	profile = getattr(user, "access_profile", None)
+	if not profile:
+		return False
+	return profile.roles.filter(code="administration").exists()
+
+
+def _is_system_request(request) -> bool:
+	expected_token = getattr(settings, "APP_INTEGRATION_TOKEN", None)
+	if not expected_token:
+		return False
+	return request.headers.get("X-App-Token") == expected_token
+
+
+def _get_vendor_code(user) -> str | None:
+	salesperson = getattr(user, "salesperson_profile", None)
+	return getattr(salesperson, "code", None)
 
 
 class CustomAuthToken(ObtainAuthToken):
@@ -50,6 +81,8 @@ class CustomAuthToken(ObtainAuthToken):
 class ProdutoSyncViewSet(viewsets.ReadOnlyModelViewSet):
 	queryset = ProdutoSync.objects.all().order_by("codigo")
 	serializer_class = ProdutoSyncSerializer
+	permission_classes = [HasAppTokenOrAuthenticated]
+	authentication_classes = [SessionAuthentication]
 	search_fields = ["codigo", "descricao", "ean", "referencia", "plu"]
 	filterset_fields = ["codigo", "ean", "plu", "loja"]
 	ordering_fields = [
@@ -65,11 +98,19 @@ class ProdutoSyncViewSet(viewsets.ReadOnlyModelViewSet):
 		"row_hash",
 	]
 
+	def get_queryset(self):
+		qs = super().get_queryset()
+		request = getattr(self, "request", None)
+		loja_codigo = getattr(request, "loja_codigo", None)
+		if loja_codigo:
+			return qs.filter(loja=loja_codigo)
+		return qs
+
 
 class ClienteSyncViewSet(viewsets.ReadOnlyModelViewSet):
 	queryset = ClienteSync.objects.all().order_by("cliente_codigo")
 	serializer_class = ClienteSyncSerializer
-	permission_classes = [HasAppToken]
+	permission_classes = [HasAppTokenOrAuthenticated]
 	pagination_class = None
 	search_fields = [
 		"cliente_codigo",
@@ -97,6 +138,27 @@ class ClienteSyncViewSet(viewsets.ReadOnlyModelViewSet):
 		"ultima_venda_valor",
 		"updated_at",
 	]
+
+	def get_queryset(self):
+		qs = super().get_queryset()
+		request = getattr(self, "request", None)
+		if request is None:
+			return qs.none()
+		loja_codigo = getattr(request, "loja_codigo", None)
+		if _is_system_request(request):
+			return qs.filter(loja_codigo=loja_codigo) if loja_codigo else qs
+		user = getattr(request, "user", None)
+		if _is_admin_user(user):
+			return qs.filter(loja_codigo=loja_codigo) if loja_codigo else qs
+		if not user or not user.is_authenticated:
+			raise PermissionDenied("Usuário não autenticado")
+		vendor_code = _get_vendor_code(user)
+		if not vendor_code:
+			raise PermissionDenied("Vendedor não identificado")
+		qs = qs.filter(vendedor_codigo=vendor_code)
+		if loja_codigo:
+			qs = qs.filter(loja_codigo=loja_codigo)
+		return qs
 
 
 class LojaViewSet(viewsets.ReadOnlyModelViewSet):
@@ -217,6 +279,45 @@ class PlanoPagamentoClienteAPIView(APIView):
 
 		qs = PlanoPagamentoCliente.objects.filter(cliente_codigo=cliente_codigo).order_by("plano_codigo")
 		data = PlanoPagamentoClienteSerializer(qs, many=True).data
+		forma_pagamento = (request.query_params.get("forma_pagamento") or "").strip().lower()
+
+		if forma_pagamento:
+			def _format_legend(item):
+				parcelas = item.get("PLANUMPAR") or 1
+				dias = item.get("PLAINTPAR") or 0
+				valor_minimo = item.get("PLAVLRMIN")
+				if valor_minimo is None:
+					valor_minimo_str = "0.00"
+				else:
+					try:
+						valor_minimo_str = f"{Decimal(str(valor_minimo)):.2f}"
+					except (InvalidOperation, ValueError):
+						valor_minimo_str = "0.00"
+				return f"Parcelas: {parcelas} • Dias entre parcelas: {dias} • Valor mínimo: R$ {valor_minimo_str}"
+
+			def _apply_label(item, parcelas):
+				descricao = (item.get("PLADES") or "").strip()
+				if parcelas > 1:
+					label = f"{descricao} {parcelas}x".strip() if descricao else f"{parcelas}x"
+				else:
+					label = "(1x)"
+				item["PLADES"] = label
+				item["PLALEG"] = _format_legend(item)
+				return item
+
+			if forma_pagamento in {"pix", "dinheiro"}:
+				escolhido = next((item for item in data if (item.get("PLANUMPAR") or 1) <= 1), None)
+				if not escolhido and data:
+					escolhido = data[0]
+				if escolhido:
+					escolhido["PLANUMPAR"] = 1
+					escolhido["PLAINTPAR"] = 0 if escolhido.get("PLAINTPAR") is None else escolhido["PLAINTPAR"]
+					data = [_apply_label(escolhido, 1)]
+				else:
+					data = []
+			elif forma_pagamento == "boleto":
+				filtrados = [item for item in data if (item.get("PLANUMPAR") or 1) > 1]
+				data = [_apply_label(item, item.get("PLANUMPAR") or 1) for item in filtrados]
 		return Response(
 			{
 				"cliente_codigo": cliente_codigo,
@@ -236,32 +337,67 @@ class PlanoPagamentoClienteSyncAPIView(APIView):
 		if not isinstance(payload, list):
 			return Response({"detail": "Envie uma lista de planos."}, status=status.HTTP_400_BAD_REQUEST)
 
-		serializer = PlanoPagamentoClienteSerializer(data=payload, many=True)
-		serializer.is_valid(raise_exception=True)
+		valid_items = []
+		for item in payload:
+			serializer = PlanoPagamentoClienteSerializer(data=item)
+			if not serializer.is_valid():
+				logger.warning("Plano inválido: %s", serializer.errors)
+				continue
+			data = dict(serializer.validated_data)
+			data.pop("PLAENT", None)
+			if data.get("parcelas") is None:
+				data["parcelas"] = 1
+			if data.get("dias_primeira_parcela") is None:
+				data["dias_primeira_parcela"] = 0
+			if data.get("dias_entre_parcelas") is None:
+				data["dias_entre_parcelas"] = 0
+			if data.get("valor_minimo") is None:
+				data["valor_minimo"] = 0
+			if data.get("valor_acrescimo") is None:
+				data["valor_acrescimo"] = 0
+			valid_items.append(data)
 
 		now = timezone.now()
-		plans = [
-			PlanoPagamentoCliente(updated_at=now, **item)
-			for item in serializer.validated_data
-		]
+		plans = [PlanoPagamentoCliente(updated_at=now, **item) for item in valid_items]
+		keys = {(p.cliente_codigo, p.plano_codigo) for p in plans}
+		existentes = set(
+			PlanoPagamentoCliente.objects.filter(
+				models.Q(
+					*[
+						models.Q(cliente_codigo=cliente, plano_codigo=plano)
+						for cliente, plano in keys
+					]
+				)
+			).values_list("cliente_codigo", "plano_codigo")
+		) if keys else set()
+
+		inseridos = len(keys - existentes)
+		atualizados = len(keys & existentes)
+
 		if plans:
 			PlanoPagamentoCliente.objects.bulk_create(
 				plans,
 				update_conflicts=True,
 				unique_fields=["cliente_codigo", "plano_codigo"],
 				update_fields=[
-					"descricao",
-					"entrada_percentual",
-					"intervalo_primeira_parcela",
-					"intervalo_parcelas",
-					"quantidade_parcelas",
+					"plano_descricao",
+					"parcelas",
+					"dias_primeira_parcela",
+					"dias_entre_parcelas",
 					"valor_acrescimo",
 					"valor_minimo",
 					"updated_at",
 				],
 			)
 
-		return Response({"status": "ok", "total": len(plans)})
+		return Response(
+			{
+				"status": "ok",
+				"total_recebidos": len(payload),
+				"inseridos": inseridos,
+				"atualizados": atualizados,
+			}
+		)
 
 
 class LojaSyncAPIView(APIView):
@@ -366,6 +502,25 @@ class PedidoViewSet(mixins.CreateModelMixin,
 		if dt and timezone.is_naive(dt):
 			dt = timezone.make_aware(dt)
 		return dt
+
+
+class PedidoStatusUpdateView(APIView):
+	permission_classes = [HasAppToken]
+
+	def put(self, request, pk):
+		pedido = get_object_or_404(Pedido, pk=pk)
+		serializer = PedidoStatusSerializer(data=request.data)
+		serializer.is_valid(raise_exception=True)
+		pedido.status = serializer.validated_data["status"]
+		pedido.save(update_fields=["status"])
+		return Response(
+			{
+				"id": pedido.id,
+				"status": pedido.status,
+				"status_display": pedido.get_status_display(),
+			},
+			status=status.HTTP_200_OK,
+		)
 
 
 class ReceberPedidoView(APIView):

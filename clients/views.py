@@ -176,7 +176,8 @@ def index(request):
 
 
 def detail(request, pk):
-	client = get_object_or_404(Client, pk=pk)
+	client_qs = Client.objects.all()
+	client = get_object_or_404(client_qs, pk=pk)
 	return render(request, 'clients/detail.html', {'client': client})
 
 
@@ -188,14 +189,16 @@ def create(request):
 
 @login_required
 def update(request, pk):
-	get_object_or_404(Client, pk=pk)  # ensure exists
+	client_qs = Client.objects.all()
+	get_object_or_404(client_qs, pk=pk)  # ensure exists
 	messages.error(request, 'Edição de clientes desabilitada (somente leitura).')
 	return redirect('clients:detail', pk=pk)
 
 
 @login_required
 def delete(request, pk):
-	get_object_or_404(Client, pk=pk)  # ensure exists
+	client_qs = Client.objects.all()
+	get_object_or_404(client_qs, pk=pk)  # ensure exists
 	messages.error(request, 'Exclusão de clientes desabilitada (somente leitura).')
 	return redirect('clients:detail', pk=pk)
 

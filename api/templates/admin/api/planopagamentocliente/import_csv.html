@@ -1,0 +1,13 @@
+{% extends "admin/base_site.html" %}
+
+{% block content %}
+  <h1>Import CSV - PlanoPagamentoCliente</h1>
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    <p>Campos obrigatorios: cliente_codigo, loja_codigo, plano_codigo.</p>
+    <p>Colunas suportadas: cliente_codigo, loja_codigo, plano_codigo, plano_descricao, parcelas, dias_primeira_parcela, dias_entre_parcelas, valor_minimo, valor_acrescimo.</p>
+    <p><input type="file" name="csv_file" accept=".csv" required></p>
+    <p><button class="default" type="submit">Importar</button></p>
+  </form>
+  <p><a href="..">Voltar</a></p>
+{% endblock %}

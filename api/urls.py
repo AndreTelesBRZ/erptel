@@ -12,6 +12,7 @@ from .views import (
 	LojaSyncAPIView,
 	ReceberPedidoView,
 	PedidoViewSet,
+	PedidoStatusUpdateView,
 	CustomAuthToken,
 )
 router = DefaultRouter()
@@ -28,6 +29,7 @@ urlpatterns = [
 	path("lojas/sync/", LojaSyncAPIView.as_view(), name="api-lojas-sync"),
 	path("", include(router.urls)),
 	path("pedidos", ReceberPedidoView.as_view(), name="api-pedidos"),
+	path("pedidos/<int:pk>/status", PedidoStatusUpdateView.as_view(), name="api-pedido-status"),
 	path("login/", CustomAuthToken.as_view(), name="api-login-slash"),
 	path("login", CustomAuthToken.as_view(), name="api-login"),
 ]

@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Body, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, ValidationError, ConfigDict
 from typing import List, Optional
 import asyncpg
 import os
@@ -13,12 +14,23 @@ import secrets
 import hmac
 import jwt
 import django
+import re
 from decimal import Decimal
 from datetime import datetime, timedelta, timezone as dt_timezone
 from django.utils import timezone as dj_timezone
 from erp_api.clientes import router as clientes_router
 import logging
 from pathlib import Path
+from erp_api.middlewares.tenant_middleware import TenantMiddleware
+
+try:
+    from dotenv import load_dotenv
+except Exception:
+    load_dotenv = None
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+if load_dotenv:
+    load_dotenv(BASE_DIR / ".env")
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "mysite.settings")
 django.setup()
@@ -27,7 +39,7 @@ from clients.models import Client, ClienteSync
 from products.models import Product, ProdutoSync
 from api.models import PlanoPagamentoCliente, Loja
 from sales.models import Pedido, ItemPedido
-from django.db import transaction, models
+from django.db import transaction, models, connection
 from django.core.files.uploadedfile import SimpleUploadedFile
 from core.forms import SefazConfigurationForm
 from core.models import SefazConfiguration
@@ -47,21 +59,133 @@ if not any(isinstance(h, logging.FileHandler) for h in logger.handlers):
     handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
     logger.addHandler(handler)
 
-app = FastAPI()
+app = FastAPI(
+    title=os.getenv("APP_NAME", "API Force"),
+    servers=[{"url": os.getenv("PUBLIC_API_URL", "")}],
+)
 bearer_scheme = HTTPBearer(auto_error=False)
 router = APIRouter(prefix="/api")
+images_router = APIRouter(prefix="/api/imagens", tags=["imagens"])
 auth_router = APIRouter(prefix="/auth", tags=["auth"])
 
-# -----------------------------------
-# CORS liberado
-# -----------------------------------
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "y", "on")
+
+
+def _env_csv(name: str) -> list[str]:
+    raw = os.getenv(name)
+    if not raw:
+        return []
+    return [item.strip() for item in raw.split(",") if item.strip()]
+
+
+ENVIRONMENT = (os.getenv("ENVIRONMENT") or "").strip().lower()
+if not ENVIRONMENT:
+    ENVIRONMENT = "development" if _env_bool("DEBUG", True) else "production"
+
+DEFAULT_API_ALLOWED_HOSTS = {
+    "apiforce.edsondosparafusos.app.br",
+    "apiforce.llfix.app.br",
+}
+API_ALLOWED_HOSTS = {host.lower() for host in DEFAULT_API_ALLOWED_HOSTS}
+api_extra_hosts = _env_csv("API_ALLOWED_HOSTS")
+if api_extra_hosts:
+    API_ALLOWED_HOSTS.update(host.lower() for host in api_extra_hosts)
+
+allow_internal_hosts = _env_bool(
+    "ALLOW_INTERNAL_HOSTS",
+    _env_bool("DEBUG", False) or ENVIRONMENT in ("dev", "development", "local"),
 )
+if allow_internal_hosts:
+    API_ALLOWED_HOSTS.update({"10.0.0.78", "127.0.0.1", "localhost"})
+
+DEFAULT_CORS_ALLOWED_ORIGINS = [
+    "https://vendas.edsondosparafusos.app.br",
+    "https://vendas.llfix.app.br",
+    "https://apiforce.edsondosparafusos.app.br",
+    "https://apiforce.llfix.app.br",
+    "https://app.llfix.com.br",
+]
+DEV_EXTRA_CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8080",
+    "http://127.0.0.1:8080",
+    "https://2pn9n2auqsujhe5pkhjl35odhar6ieddxpge24zk940sjgp3xb-h845251650.scf.usercontent.goog",
+]
+
+env_origins = _env_csv("CORS_ALLOWED_ORIGINS")
+if env_origins:
+    CORS_ALLOWED_ORIGINS = env_origins
+else:
+    if ENVIRONMENT in ("dev", "development", "local"):
+        CORS_ALLOWED_ORIGINS = DEFAULT_CORS_ALLOWED_ORIGINS + DEV_EXTRA_CORS_ALLOWED_ORIGINS
+    else:
+        CORS_ALLOWED_ORIGINS = DEFAULT_CORS_ALLOWED_ORIGINS
+    CORS_ALLOWED_ORIGINS = list(dict.fromkeys(CORS_ALLOWED_ORIGINS))
+
+env_origin_regex = (os.getenv("CORS_ALLOWED_ORIGIN_REGEX") or "").strip()
+if env_origin_regex:
+    CORS_ALLOWED_ORIGIN_REGEX = env_origin_regex
+elif ENVIRONMENT in ("dev", "development", "local"):
+    CORS_ALLOWED_ORIGIN_REGEX = r"^https://.*\.scf\.usercontent\.goog$"
+else:
+    CORS_ALLOWED_ORIGIN_REGEX = ""
+
+app.add_middleware(TenantMiddleware)
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=sorted(API_ALLOWED_HOSTS))
+cors_kwargs = {
+    "allow_origins": CORS_ALLOWED_ORIGINS,
+    "allow_credentials": True,
+    "allow_methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    "allow_headers": [
+        "Authorization",
+        "Accept",
+        "Content-Type",
+        "X-App-Token",
+        "X-Loja-Codigo",
+        "X-Forwarded-Host",
+        "X-Forwarded-Proto",
+        "X-Requested-With",
+    ],
+}
+if CORS_ALLOWED_ORIGIN_REGEX:
+    cors_kwargs["allow_origin_regex"] = CORS_ALLOWED_ORIGIN_REGEX
+app.add_middleware(CORSMiddleware, **cors_kwargs)
+
+
+def validate_host(request: Request) -> None:
+    host = request.headers.get("host")
+    if not host:
+        raise HTTPException(status_code=403, detail="Host ausente")
+    hostname = host.split(":", 1)[0].lower().strip()
+    if hostname not in API_ALLOWED_HOSTS:
+        raise HTTPException(status_code=403, detail=f"Domínio não autorizado: {hostname}")
+
+
+@app.middleware("http")
+async def host_validation_middleware(request: Request, call_next):
+    validate_host(request)
+    return await call_next(request)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    detail = exc.detail
+    content = detail if isinstance(detail, dict) else {"message": detail}
+    return JSONResponse(status_code=exc.status_code, content=content, headers=exc.headers)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    logger.exception("Unhandled API error", exc_info=exc)
+    return JSONResponse(status_code=500, content={"message": "erro interno"})
 
 # -----------------------------------
 # Conexões com PostgreSQL (dados vs. autenticação)
@@ -89,6 +213,7 @@ JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "60"))
 DEFAULT_ADMIN_USER = os.getenv("DEFAULT_ADMIN_USER")
 DEFAULT_ADMIN_PASSWORD = os.getenv("DEFAULT_ADMIN_PASSWORD")
+APP_INTEGRATION_TOKEN = (os.getenv("APP_INTEGRATION_TOKEN") or "").strip()
 PEDIDO_STATUS_VALUES = {
     "orcamento",
     "pre_venda",
@@ -99,6 +224,17 @@ PEDIDO_STATUS_VALUES = {
 }
 PAGAMENTO_STATUS_VALUES = {"aguardando", "pago_avista", "fatura_a_vencer", "negado"}
 FRETE_MODALIDADE_VALUES = {"cif", "fob", "sem_frete"}
+IMAGE_TYPE_PREFIXES = {
+    "produto": "produtos",
+    "subgrupo": "subgrupos",
+    "marca": "marcas",
+}
+S3_BASE_URL = "https://s3.edsondosparafusos.app.br"
+BASE_API_URL = (os.getenv("BASE_API_URL") or "").rstrip("/")
+MINIO_ROOT_PREFIX = "produtos"
+PLACEHOLDER_KEY = f"{MINIO_ROOT_PREFIX}/placeholders/sem-imagem.webp"
+DISABLE_IMAGE_UPLOAD = os.getenv("DISABLE_IMAGE_UPLOAD", "true").lower() in ("1", "true", "yes", "on")
+CLIENTES_LOJA_GLOBAL_CODE = (os.getenv("CLIENTES_LOJA_GLOBAL_CODE") or "00000").strip() or "00000"
 
 
 @app.on_event("startup")
@@ -115,6 +251,8 @@ async def startup():
         command_timeout=POOL_COMMAND_TIMEOUT,
         **AUTH_DB_CONFIG,
     )
+    async with app.state.data_pool.acquire() as conn:
+        await _ensure_tenant_tables(conn)
     async with app.state.auth_pool.acquire() as conn:
         await _ensure_auth_tables(conn)
         await _bootstrap_admin_user(conn)
@@ -142,6 +280,205 @@ def _get_auth_pool():
     return pool
 
 
+def require_tenant(request: Request) -> str:
+    loja_codigo = getattr(request.state, "loja_codigo", None)
+    if not loja_codigo:
+        raise HTTPException(500, "Loja não resolvida")
+    return loja_codigo
+
+
+def _normalize_loja_codigo(value: Optional[str]) -> str:
+    if value is None:
+        return ""
+    trimmed = value.strip()
+    if not trimmed:
+        return ""
+    normalized = trimmed.lstrip("0")
+    return normalized or "0"
+
+
+def _normalize_vendor_code(value: Optional[str]) -> str:
+    if value is None:
+        return ""
+    trimmed = value.strip()
+    if not trimmed:
+        return ""
+    digits = "".join(ch for ch in trimmed if ch.isdigit())
+    if digits:
+        return digits.lstrip("0") or "0"
+    return trimmed.lower()
+
+
+def _loja_matches(requested: Optional[str], tenant: Optional[str]) -> bool:
+    if not requested or not tenant:
+        return False
+    return _normalize_loja_codigo(requested) == _normalize_loja_codigo(tenant)
+
+
+def _loja_regex(loja_codigo: str) -> str:
+    normalized = _normalize_loja_codigo(loja_codigo)
+    if not normalized:
+        return r"^$"
+    escaped = re.escape(normalized)
+    return rf"^0*{escaped}$"
+
+
+def _sql_loja_equals(column_name: str, param_index: int) -> str:
+    return f"ltrim({column_name}, '0') = ltrim(${param_index}, '0')"
+
+
+def _sql_vendor_equals(column_name: str, param_index: int) -> str:
+    return f"ltrim({column_name}, '0') = ltrim(${param_index}, '0')"
+
+
+def _sql_loja_equals_or_global(column_name: str, param_index: int) -> str:
+    if not CLIENTES_LOJA_GLOBAL_CODE:
+        return _sql_loja_equals(column_name, param_index)
+    return f"({_sql_loja_equals(column_name, param_index)} OR {column_name} = '{CLIENTES_LOJA_GLOBAL_CODE}')"
+
+
+async def _ensure_tenant_tables(conn: asyncpg.Connection) -> None:
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS dominios_lojas (
+            id SERIAL PRIMARY KEY,
+            dominio VARCHAR(255) UNIQUE NOT NULL,
+            loja_codigo VARCHAR(10) NOT NULL,
+            ativo BOOLEAN DEFAULT TRUE
+        );
+        INSERT INTO dominios_lojas (dominio, loja_codigo)
+        VALUES
+            ('vendas.llfix.app.br', '000003'),
+            ('vendas.edsondosparafusos.app.br', '00001'),
+            ('apiforce.llfix.app.br', '000003'),
+            ('apiforce.edsondosparafusos.app.br', '00001')
+        ON CONFLICT (dominio) DO NOTHING;
+        UPDATE dominios_lojas
+        SET loja_codigo = '000003'
+        WHERE dominio = 'vendas.llfix.app.br'
+          AND loja_codigo <> '000003';
+        UPDATE dominios_lojas
+        SET loja_codigo = '000003'
+        WHERE dominio = 'apiforce.llfix.app.br'
+          AND loja_codigo <> '000003';
+        UPDATE dominios_lojas
+        SET loja_codigo = '00001'
+        WHERE dominio = 'apiforce.edsondosparafusos.app.br'
+          AND loja_codigo <> '00001';
+        """
+    )
+
+
+def _build_image_key(tipo: str, codigo: str) -> str:
+    prefix = IMAGE_TYPE_PREFIXES.get(tipo)
+    if not prefix:
+        raise HTTPException(400, "Tipo inválido. Use: produto, subgrupo ou marca.")
+    if not codigo:
+        raise HTTPException(400, "Código não informado.")
+    return f"{MINIO_ROOT_PREFIX}/{prefix}/{codigo}.webp"
+
+
+def _public_image_url(key: str) -> str:
+    return f"{S3_BASE_URL}/{key}"
+
+
+def _image_api_url(tipo: str, codigo: str) -> str:
+    base = BASE_API_URL
+    if base:
+        return f"{base}/api/imagens/{tipo}/{codigo}"
+    return f"/api/imagens/{tipo}/{codigo}"
+
+
+def _produto_base_sql() -> str:
+    return """
+        SELECT
+            p.produto_codigo AS codigo,
+            p.descricao_completa,
+            p.referencia,
+            p.secao,
+            p.grupo,
+            p.subgrupo,
+            p.unidade,
+            p.ean,
+            p.plu,
+            pr.preco_normal,
+            pr.preco_promocao1,
+            pr.preco_promocao2,
+            pe.estoque_disponivel,
+            pr.loja_codigo AS loja,
+            p.refplu,
+            p.row_hash,
+            pr.custo,
+            pr.updated_at AS preco_updated_at,
+            v.codigo_imagem,
+            v.tipo_imagem
+        FROM erp_produtos p
+        JOIN erp_produtos_precos pr
+            ON pr.produto_codigo = p.produto_codigo
+        LEFT JOIN erp_produtos_estoque pe
+            ON pe.produto_codigo = p.produto_codigo
+           AND pe.loja_codigo = pr.loja_codigo
+        LEFT JOIN vw_produto_imagem v
+            ON v.produto_codigo = p.produto_codigo
+           AND v.loja_codigo = pr.loja_codigo
+    """
+
+
+def _produto_sync_base_sql() -> str:
+    return """
+        SELECT
+            p.codigo AS codigo,
+            p.descricao_completa,
+            p.referencia,
+            p.secao,
+            p.grupo,
+            p.subgrupo,
+            p.unidade,
+            p.ean,
+            p.plu,
+            p.preco_normal,
+            p.preco_promocao1,
+            p.preco_promocao2,
+            p.estoque_disponivel,
+            p.loja,
+            p.refplu,
+            p.row_hash,
+            NULL::numeric AS custo,
+            NULL::varchar AS codigo_imagem,
+            NULL::varchar AS tipo_imagem
+        FROM erp_produtos_sync p
+    """
+
+
+def build_product_image_payload(
+    codigo_imagem: Optional[str],
+    tipo_imagem: Optional[str],
+) -> dict:
+    codigo = str(codigo_imagem).strip() if codigo_imagem is not None else ""
+    tipo = str(tipo_imagem).strip() if tipo_imagem is not None else ""
+    if codigo and tipo:
+        imagem_url = _image_api_url(tipo, codigo)
+    else:
+        imagem_url = _image_api_url("default", "sem-imagem")
+    return {
+        "codigo_imagem": codigo_imagem,
+        "tipo_imagem": tipo_imagem,
+        "imagem_url": imagem_url,
+    }
+
+
+def _normalize_product_payload(data: dict) -> dict:
+    payload = dict(data)
+    codigo = payload.get("codigo")
+    payload.setdefault("id", codigo)
+    unidade = payload.get("unidade")
+    if unidade and "sigla_unidade" not in payload:
+        payload["sigla_unidade"] = unidade
+    if "estoque_minimo" not in payload:
+        payload["estoque_minimo"] = payload.get("min_stock") or 0
+    return payload
+
+
 def _serialize_sefaz_config(config: SefazConfiguration) -> dict:
     return {
         "base_url": config.base_url,
@@ -163,14 +500,29 @@ def _plan_to_dict(plan: PlanoPagamentoCliente) -> dict:
     return {
         "CLICOD": plan.cliente_codigo,
         "PLACOD": plan.plano_codigo,
-        "PLADES": plan.descricao or "",
-        "PLAENT": plan.entrada_percentual,
-        "PLAINTPRI": plan.intervalo_primeira_parcela,
-        "PLAINTPAR": plan.intervalo_parcelas,
-        "PLANUMPAR": plan.quantidade_parcelas,
+        "PLADES": plan.plano_descricao or "",
+        "PLAENT": Decimal("0"),
+        "PLAINTPRI": plan.dias_primeira_parcela,
+        "PLAINTPAR": plan.dias_entre_parcelas,
+        "PLANUMPAR": plan.parcelas,
         "PLAVLRMIN": plan.valor_minimo,
         "PLAVLRACR": plan.valor_acrescimo,
     }
+
+def _fetch_planos_pagamento(cliente_codigo: str, loja_codigo: str) -> list[PlanoPagamentoCliente]:
+    qs = PlanoPagamentoCliente.objects.filter(
+        cliente_codigo=cliente_codigo,
+        loja_codigo=loja_codigo,
+    ).order_by("plano_codigo")
+    plans = list(qs)
+    if plans or (cliente_codigo or "").strip().lower() == "todos":
+        return plans
+    return list(
+        PlanoPagamentoCliente.objects.filter(
+            cliente_codigo="todos",
+            loja_codigo=loja_codigo,
+        ).order_by("plano_codigo")
+    )
 
 
 def _loja_to_dict(loja: Loja) -> dict:
@@ -298,42 +650,73 @@ async def _get_user_by_credentials(username: str, password: str) -> Optional[dic
     }
 
 
-async def _resolve_vendor_for_username(username: str) -> Optional[dict]:
-    name = (username or "").strip().lower()
-    if not name:
+async def _resolve_vendor_for_username(username: str, loja_codigo: str) -> Optional[dict]:
+    raw_name = (username or "").strip().lower()
+    if not raw_name:
         return None
+    candidates = []
+    if raw_name:
+        candidates.append(raw_name)
+    if "@" in raw_name:
+        candidates.append(raw_name.split("@", 1)[0])
+    simple = re.sub(r"[^a-z0-9]+", " ", raw_name).strip()
+    if simple and simple not in candidates:
+        candidates.append(simple)
+    first_token = simple.split(" ", 1)[0] if simple else ""
+    if first_token and first_token not in candidates:
+        candidates.append(first_token)
     pool = _get_data_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT vendedor_codigo, vendedor_nome
-            FROM erp_clientes_vendedores
-            WHERE lower(vendedor_nome) = $1
-            ORDER BY vendedor_codigo
-            LIMIT 1;
-            """,
-            name,
-        )
-    if row:
-        return {"vendor_code": row["vendedor_codigo"], "vendor_name": row["vendedor_nome"]}
+        for candidate in candidates:
+            row = await conn.fetchrow(
+                f"""
+                SELECT vendedor_codigo, vendedor_nome
+                FROM erp_clientes_vendedores
+                WHERE lower(btrim(vendedor_nome)) = $1
+                  AND {_sql_loja_equals_or_global("loja_codigo", 2)}
+                ORDER BY vendedor_codigo
+                LIMIT 1;
+                """,
+                candidate,
+                loja_codigo,
+            )
+            if row:
+                return {"vendor_code": row["vendedor_codigo"], "vendor_name": row["vendedor_nome"]}
+        for candidate in candidates:
+            row = await conn.fetchrow(
+                f"""
+                SELECT vendedor_codigo, vendedor_nome
+                FROM erp_clientes_vendedores
+                WHERE lower(btrim(vendedor_nome)) LIKE $1
+                  AND {_sql_loja_equals_or_global("loja_codigo", 2)}
+                ORDER BY vendedor_codigo
+                LIMIT 1;
+                """,
+                f"{candidate}%",
+                loja_codigo,
+            )
+            if row:
+                return {"vendor_code": row["vendedor_codigo"], "vendor_name": row["vendedor_nome"]}
     return None
 
 
-async def _resolve_vendor_by_code(vendor_code: Optional[str]) -> Optional[dict]:
+async def _resolve_vendor_by_code(vendor_code: Optional[str], loja_codigo: str) -> Optional[dict]:
     code = (vendor_code or "").strip()
     if not code:
         return None
     pool = _get_data_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            """
+            f"""
             SELECT vendedor_codigo, vendedor_nome
             FROM erp_clientes_vendedores
-            WHERE vendedor_codigo = $1
+            WHERE ltrim(vendedor_codigo, '0') = ltrim($1, '0')
+              AND {_sql_loja_equals_or_global("loja_codigo", 2)}
             ORDER BY vendedor_nome
             LIMIT 1;
             """,
             code,
+            loja_codigo,
         )
     if row:
         return {"vendor_code": row["vendedor_codigo"], "vendor_name": row["vendedor_nome"]}
@@ -359,6 +742,42 @@ class ProdutoSyncIn(BaseModel):
     custo: float = 0
     loja: str = "000001"
     row_hash: str = ""
+
+
+class ClienteOut(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    cliente_codigo: Optional[str] = None
+    cliente_status: Optional[int] = None
+    cliente_razao_social: Optional[str] = None
+    cliente_nome_fantasia: Optional[str] = None
+    cliente_cnpj_cpf: Optional[str] = None
+    cliente_tipo_pf_pj: Optional[str] = None
+    cliente_endereco: Optional[str] = None
+    cliente_numero: Optional[str] = None
+    cliente_bairro: Optional[str] = None
+    cliente_cidade: Optional[str] = None
+    cliente_uf: Optional[str] = None
+    cliente_cep: Optional[str] = None
+    cliente_telefone1: Optional[str] = None
+    cliente_telefone2: Optional[str] = None
+    cliente_email: Optional[str] = None
+    cliente_inscricao_municipal: Optional[str] = None
+    limite_credito: Optional[float] = None
+    row_hash: Optional[str] = None
+    vendedor_codigo: Optional[str] = None
+    vendedor_nome: Optional[str] = None
+    ultima_venda_data: Optional[datetime] = None
+    ultima_venda_valor: Optional[float] = None
+    loja_codigo: Optional[str] = None
+    updated_at: Optional[datetime] = None
+
+
+class ClientesPageOut(BaseModel):
+    total: int
+    data: List[ClienteOut]
+    page: Optional[int] = None
+    page_size: Optional[int] = None
 
 
 class UserOut(BaseModel):
@@ -444,15 +863,22 @@ class PedidoIn(BaseModel):
 
 
 class PlanoPagamentoClienteIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
     CLICOD: str
     PLACOD: str
-    PLADES: Optional[str] = None
-    PLAENT: Optional[Decimal] = None
-    PLAINTPRI: Optional[int] = None
-    PLAINTPAR: Optional[int] = None
-    PLANUMPAR: Optional[int] = None
-    PLAVLRMIN: Optional[Decimal] = None
-    PLAVLRACR: Optional[Decimal] = None
+    PLADES: str
+    PLAENT: Optional[Decimal] = Decimal("0")
+    PLAINTPRI: Optional[int] = 0
+    PLAINTPAR: Optional[int] = 0
+    PLANUMPAR: Optional[int] = 1
+    PLAVLRMIN: Optional[Decimal] = Decimal("0")
+    PLAVLRACR: Optional[Decimal] = Decimal("0")
+
+    @field_validator("CLICOD", "PLACOD", "PLADES")
+    def require_non_empty(cls, v):
+        if v is None or not str(v).strip():
+            raise ValueError("Campo obrigatório.")
+        return str(v).strip()
 
 
 class PlanoPagamentoClienteOut(PlanoPagamentoClienteIn):
@@ -489,9 +915,41 @@ class LojaIn(BaseModel):
     AGEEST: Optional[str] = None
 
 
-async def require_jwt(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> dict:
+PLANOS_PAGAMENTO_SCHEMA = {
+    "type": "array",
+    "items": PlanoPagamentoClienteIn.model_json_schema(),
+    "examples": [
+        [
+            {
+                "CLICOD": "000182",
+                "PLACOD": "01",
+                "PLADES": "A VISTA",
+                "PLAENT": 1.0,
+                "PLAINTPRI": 0,
+                "PLAINTPAR": 0,
+                "PLANUMPAR": 1,
+                "PLAVLRMIN": 0.0,
+                "PLAVLRACR": 0.0,
+            }
+        ]
+    ],
+}
+
+
+async def require_jwt(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict:
     if DISABLE_API_AUTH:
         return {"id": 0, "username": "auth_disabled"}
+    app_token = (request.headers.get("X-App-Token") or "").strip()
+    if APP_INTEGRATION_TOKEN and app_token == APP_INTEGRATION_TOKEN:
+        return {"id": 0, "username": "app_token", "vendor_code": None, "is_app_token": True}
+    auth_header = (request.headers.get("Authorization") or "").strip()
+    if APP_INTEGRATION_TOKEN and auth_header:
+        scheme, _, raw_value = auth_header.partition(" ")
+        if scheme.lower() in ("bearer", "token", "app") and raw_value.strip() == APP_INTEGRATION_TOKEN:
+            return {"id": 0, "username": "app_token", "vendor_code": None, "is_app_token": True}
     if not credentials or credentials.scheme.lower() != "bearer":
         logger.warning("Auth failed: missing/invalid bearer header")
         raise HTTPException(401, "Token ausente ou inválido", headers={"WWW-Authenticate": "Bearer"})
@@ -503,7 +961,7 @@ async def require_jwt(credentials: HTTPAuthorizationCredentials = Depends(bearer
         raise HTTPException(401, "Token expirado", headers={"WWW-Authenticate": "Bearer"})
     except jwt.InvalidTokenError:
         logger.warning("Auth failed: invalid token")
-        raise HTTPException(403, "Token inválido")
+        raise HTTPException(401, "Token inválido", headers={"WWW-Authenticate": "Bearer"})
 
     user_id = payload.get("sub")
     username = payload.get("username")
@@ -513,17 +971,108 @@ async def require_jwt(credentials: HTTPAuthorizationCredentials = Depends(bearer
     pool = _get_auth_pool()
     async with pool.acquire() as conn:
         row = await conn.fetchrow(
-            "SELECT id, username, is_active FROM api_users WHERE id = $1;",
+            "SELECT id, username, is_active, vendor_code FROM api_users WHERE id = $1;",
             int(user_id),
         )
     if not row or not row["is_active"]:
         raise HTTPException(403, "Usuário inativo ou não encontrado")
 
+    vendor_code = (payload.get("vendor_code") or "").strip() or None
+    if not vendor_code:
+        vendor_code = (row.get("vendor_code") or "").strip() or None
+    if not vendor_code:
+        admin_user = (DEFAULT_ADMIN_USER or "").strip()
+        if not (admin_user and (username or "").lower() == admin_user.lower()):
+            loja_codigo = getattr(request.state, "loja_codigo", None)
+            if loja_codigo:
+                resolved = await _resolve_vendor_for_username(username or "", loja_codigo)
+                if resolved:
+                    vendor_code = resolved.get("vendor_code")
+                    logger.info(
+                        "Auth vendor resolved by username=%s loja=%s vendor_code=%s",
+                        username,
+                        loja_codigo,
+                        vendor_code,
+                    )
+
+    logger.info(
+        "Auth ok path=%s user_id=%s username=%s vendor_code=%s",
+        request.url.path,
+        user_id,
+        username,
+        vendor_code or "",
+    )
     return {
         "id": row["id"],
         "username": row["username"],
         "token_username": username,
-        "vendor_code": payload.get("vendor_code"),
+        "vendor_code": vendor_code,
+    }
+
+
+async def optional_jwt(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+) -> dict:
+    if DISABLE_API_AUTH:
+        return {"id": 0, "username": "auth_disabled", "vendor_code": None, "is_app_token": True}
+    app_token = (request.headers.get("X-App-Token") or "").strip()
+    if APP_INTEGRATION_TOKEN and app_token == APP_INTEGRATION_TOKEN:
+        return {"id": 0, "username": "app_token", "vendor_code": None, "is_app_token": True}
+    auth_header = (request.headers.get("Authorization") or "").strip()
+    if APP_INTEGRATION_TOKEN and auth_header:
+        scheme, _, raw_value = auth_header.partition(" ")
+        if scheme.lower() in ("bearer", "token", "app") and raw_value.strip() == APP_INTEGRATION_TOKEN:
+            return {"id": 0, "username": "app_token", "vendor_code": None, "is_app_token": True}
+    if not credentials or credentials.scheme.lower() != "bearer":
+        return {"id": 0, "username": "app_token", "vendor_code": None, "is_app_token": True}
+    raw_token = credentials.credentials
+    try:
+        payload = jwt.decode(raw_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        logger.warning("Auth optional: expired token; fallback to anonymous")
+        return {"id": 0, "username": "app_token", "vendor_code": None, "is_app_token": True}
+    except jwt.InvalidTokenError:
+        logger.warning("Auth optional: invalid token; fallback to anonymous")
+        return {"id": 0, "username": "app_token", "vendor_code": None, "is_app_token": True}
+
+    user_id = payload.get("sub")
+    username = payload.get("username")
+    if not user_id:
+        raise HTTPException(403, "Token inválido")
+
+    pool = _get_auth_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, username, is_active, vendor_code FROM api_users WHERE id = $1;",
+            int(user_id),
+        )
+    if not row or not row["is_active"]:
+        raise HTTPException(403, "Usuário inativo ou não encontrado")
+
+    vendor_code = (payload.get("vendor_code") or "").strip() or None
+    if not vendor_code:
+        vendor_code = (row.get("vendor_code") or "").strip() or None
+    if not vendor_code:
+        admin_user = (DEFAULT_ADMIN_USER or "").strip()
+        if not (admin_user and (username or "").lower() == admin_user.lower()):
+            loja_codigo = getattr(request.state, "loja_codigo", None)
+            if loja_codigo:
+                resolved = await _resolve_vendor_for_username(username or "", loja_codigo)
+                if resolved:
+                    vendor_code = resolved.get("vendor_code")
+                    logger.info(
+                        "Auth vendor resolved by username=%s loja=%s vendor_code=%s",
+                        username,
+                        loja_codigo,
+                        vendor_code,
+                    )
+
+    return {
+        "id": row["id"],
+        "username": row["username"],
+        "token_username": username,
+        "vendor_code": vendor_code,
     }
 
 
@@ -536,15 +1085,157 @@ async def require_admin(token: dict = Depends(require_jwt)) -> dict:
     if (token.get("username") or "").lower() != admin_user.lower():
         raise HTTPException(403, "Sem permissão")
     return token
+
+
+def _is_admin_token(token: dict) -> bool:
+    if DISABLE_API_AUTH:
+        return True
+    if token.get("is_app_token"):
+        return True
+    admin_user = (DEFAULT_ADMIN_USER or "").strip()
+    if not admin_user:
+        return False
+    return (token.get("username") or "").lower() == admin_user.lower()
+
+
+def _append_loja_scope(clauses: list[str], params: list, loja_codigo: str, column_name: str) -> None:
+    if not loja_codigo:
+        raise HTTPException(500, "Loja não resolvida")
+    params.append(loja_codigo)
+    clauses.append(_sql_loja_equals(column_name, len(params)))
+
+
+def _append_loja_scope_with_global(clauses: list[str], params: list, loja_codigo: str, column_name: str) -> None:
+    if not loja_codigo:
+        raise HTTPException(500, "Loja não resolvida")
+    params.append(loja_codigo)
+    clauses.append(_sql_loja_equals_or_global(column_name, len(params)))
+
+
+def _coalesce_vendor_code(token: dict, vendor_override: Optional[str]) -> Optional[str]:
+    override = (vendor_override or "").strip()
+    token_vendor = (token.get("vendor_code") or "").strip()
+    if token.get("is_app_token"):
+        return override or None
+    if not _is_admin_token(token):
+        if override and token_vendor:
+            override_norm = _normalize_vendor_code(override)
+            token_norm = _normalize_vendor_code(token_vendor)
+            if override_norm and token_norm and override_norm != token_norm:
+                raise HTTPException(403, "Vendedor não autorizado")
+        vendor_code = token_vendor or override
+        if not vendor_code:
+            raise HTTPException(403, "Vendedor não identificado")
+        return vendor_code
+    return override or None
+
+
+def _build_cliente_scope(
+    token: dict,
+    loja_codigo: str,
+    vendor_override: Optional[str] = None,
+) -> tuple[str, list[str], list]:
+    vendor_code = _coalesce_vendor_code(token, vendor_override)
+    if _is_admin_token(token) and not vendor_code:
+        return "", [], []
+    params: list = [loja_codigo]
+    join_sql = (
+        "JOIN erp_clientes_vendedores cv "
+        "ON cv.cliente_codigo = c.cliente_codigo "
+        f"AND {_sql_loja_equals_or_global('cv.loja_codigo', 1)}"
+    )
+    clauses: list[str] = []
+    if vendor_code:
+        params.append(vendor_code)
+        clauses.append(_sql_vendor_equals("cv.vendedor_codigo", len(params)))
+    return join_sql, clauses, params
+
+
+def _build_cliente_vendedores_scope(
+    token: dict,
+    loja_codigo: str,
+    vendor_override: Optional[str] = None,
+) -> tuple[list[str], list]:
+    clauses: list[str] = []
+    params: list = []
+    _append_loja_scope_with_global(clauses, params, loja_codigo, "cv.loja_codigo")
+    vendor_code = _coalesce_vendor_code(token, vendor_override)
+    if vendor_code:
+        params.append(vendor_code)
+        clauses.append(_sql_vendor_equals("cv.vendedor_codigo", len(params)))
+    return clauses, params
+
+
+def _build_cliente_fallback_scope(
+    token: dict,
+    loja_codigo: str,
+    vendor_override: Optional[str] = None,
+) -> tuple[list[str], list]:
+    clauses: list[str] = []
+    params: list = []
+    _append_loja_scope_with_global(clauses, params, loja_codigo, "c.loja_codigo")
+    vendor_code = _coalesce_vendor_code(token, vendor_override)
+    if vendor_code:
+        params.append(vendor_code)
+        clauses.append(_sql_vendor_equals("c.vendedor_codigo", len(params)))
+    return clauses, params
+
+
+def _normalize_cliente_payload(data: dict) -> dict:
+    if "rowhash" in data and not data.get("row_hash"):
+        data["row_hash"] = data["rowhash"]
+    data.pop("rowhash", None)
+    return data
 # -----------------------------------
 # LISTAR PRODUTOS (tabela já existente)
 # -----------------------------------
 @app.get("/api/products", tags=["produtos"])
-async def listar_produtos(token: dict = Depends(require_jwt)):
+async def listar_produtos(
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+    vendedor_id: Optional[str] = Query(None, alias="vendedor_id"),
+    limit: Optional[int] = Query(None),
+):
     pool = _get_data_pool()
+    resolved_limit = limit if limit is not None and limit > 0 else None
     async with pool.acquire() as conn:
-        rows = await conn.fetch("SELECT * FROM erp_produtos_sync ORDER BY codigo;")
-        return [dict(r) for r in rows]
+        try:
+            base_sql = _produto_base_sql()
+            sql = f"""
+                WITH base AS (
+                    {base_sql}
+                    WHERE {_sql_loja_equals("pr.loja_codigo", 1)}
+                )
+                SELECT DISTINCT ON (codigo) *
+                FROM base
+                ORDER BY codigo, preco_updated_at DESC NULLS LAST
+            """
+            params: list = [loja_codigo]
+            if resolved_limit:
+                sql += f" LIMIT ${len(params) + 1}"
+                params.append(resolved_limit)
+            sql += ";"
+            rows = await conn.fetch(sql, *params)
+        except asyncpg.UndefinedTableError:
+            base_sql = _produto_sync_base_sql()
+            sql = f"""
+                {base_sql}
+                WHERE {_sql_loja_equals("p.loja", 1)}
+                ORDER BY p.codigo
+            """
+            params = [loja_codigo]
+            if resolved_limit:
+                sql += f" LIMIT ${len(params) + 1}"
+                params.append(resolved_limit)
+            sql += ";"
+            rows = await conn.fetch(sql, *params)
+        output = []
+        for row in rows:
+            data = dict(row)
+            data.pop("preco_updated_at", None)
+            data.update(build_product_image_payload(data.get("codigo_imagem"), data.get("tipo_imagem")))
+            output.append(_normalize_product_payload(data))
+        return output
 
 
 @app.get("/api/produtos-sync", tags=["produtos"])
@@ -554,93 +1245,367 @@ async def listar_produtos_sync(
     plu: Optional[str] = None,
     ean: Optional[str] = None,
     loja: Optional[str] = None,
-    token: dict = Depends(require_jwt),
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
 ):
     clauses = []
     params = []
 
     if codigo:
         params.append(codigo)
-        clauses.append(f"codigo = ${len(params)}")
+        clauses.append(f"p.produto_codigo = ${len(params)}")
     if plu:
         params.append(plu)
-        clauses.append(f"plu = ${len(params)}")
+        clauses.append(f"p.plu = ${len(params)}")
     if ean:
         params.append(ean)
-        clauses.append(f"ean = ${len(params)}")
-    if loja:
-        params.append(loja)
-        clauses.append(f"loja = ${len(params)}")
+        clauses.append(f"p.ean = ${len(params)}")
+    if loja and not _loja_matches(loja, loja_codigo):
+        raise HTTPException(403, "Loja não autorizada")
+    _append_loja_scope(clauses, params, loja_codigo, "pr.loja_codigo")
     if q:
         params.append(f"%{q}%")
         clauses.append(
-            f"(descricao_completa ILIKE ${len(params)} OR referencia ILIKE ${len(params)} OR codigo ILIKE ${len(params)})"
+            f"(p.descricao_completa ILIKE ${len(params)} "
+            f"OR p.referencia ILIKE ${len(params)} "
+            f"OR p.produto_codigo ILIKE ${len(params)})"
         )
 
     where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-    sql = f"SELECT * FROM erp_produtos_sync {where_sql} ORDER BY codigo;"
-
     pool = _get_data_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(sql, *params)
-    return [dict(r) for r in rows]
+        try:
+            base_sql = _produto_base_sql()
+            sql = f"""
+                {base_sql}
+                {where_sql}
+                ORDER BY p.produto_codigo;
+            """
+            rows = await conn.fetch(sql, *params)
+        except asyncpg.UndefinedTableError:
+            sync_clauses = []
+            sync_params = []
+            if codigo:
+                sync_params.append(codigo)
+                sync_clauses.append(f"p.codigo = ${len(sync_params)}")
+            if plu:
+                sync_params.append(plu)
+                sync_clauses.append(f"p.plu = ${len(sync_params)}")
+            if ean:
+                sync_params.append(ean)
+                sync_clauses.append(f"p.ean = ${len(sync_params)}")
+            if loja and not _loja_matches(loja, loja_codigo):
+                raise HTTPException(403, "Loja não autorizada")
+            _append_loja_scope(sync_clauses, sync_params, loja_codigo, "p.loja")
+            if q:
+                sync_params.append(f"%{q}%")
+                sync_clauses.append(
+                    f"(p.descricao_completa ILIKE ${len(sync_params)} "
+                    f"OR p.referencia ILIKE ${len(sync_params)} "
+                    f"OR p.codigo ILIKE ${len(sync_params)})"
+                )
+            sync_where_sql = f"WHERE {' AND '.join(sync_clauses)}" if sync_clauses else ""
+            base_sql = _produto_sync_base_sql()
+            sql = f"""
+                {base_sql}
+                {sync_where_sql}
+                ORDER BY p.codigo;
+            """
+            rows = await conn.fetch(sql, *sync_params)
+    output = []
+    for row in rows:
+        data = dict(row)
+        data.update(build_product_image_payload(data.get("codigo_imagem"), data.get("tipo_imagem")))
+        output.append(_normalize_product_payload(data))
+    return output
+
+
+@app.get("/api/produtos", tags=["produtos"])
+async def listar_produtos_alias(
+    q: Optional[str] = None,
+    codigo: Optional[str] = None,
+    plu: Optional[str] = None,
+    ean: Optional[str] = None,
+    loja: Optional[str] = None,
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
+    return await listar_produtos_sync(
+        q=q,
+        codigo=codigo,
+        plu=plu,
+        ean=ean,
+        loja=loja,
+        token=token,
+        loja_codigo=loja_codigo,
+    )
 
 
 @app.get("/api/produtos-sync/{codigo}", tags=["produtos"])
-async def produto_por_codigo(codigo: str, token: dict = Depends(require_jwt)):
+async def produto_por_codigo(
+    codigo: str,
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
     pool = _get_data_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM erp_produtos_sync WHERE codigo = $1;",
-            codigo,
-        )
+        try:
+            base_sql = _produto_base_sql()
+            row = await conn.fetchrow(
+                f"""
+                {base_sql}
+                WHERE p.produto_codigo = $1
+                  AND {_sql_loja_equals("pr.loja_codigo", 2)};
+                """,
+                codigo,
+                loja_codigo,
+            )
+        except asyncpg.UndefinedTableError:
+            base_sql = _produto_sync_base_sql()
+            row = await conn.fetchrow(
+                f"""
+                {base_sql}
+                WHERE p.codigo = $1
+                  AND {_sql_loja_equals("p.loja", 2)};
+                """,
+                codigo,
+                loja_codigo,
+            )
     if not row:
         raise HTTPException(404, "Produto não encontrado")
-    return dict(row)
+    data = dict(row)
+    data.update(build_product_image_payload(data.get("codigo_imagem"), data.get("tipo_imagem")))
+    return data
+
+
+@app.get("/api/produtos/search", tags=["produtos"])
+async def buscar_produto_alias(
+    q: str,
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
+    return await buscar_produto(q=q, token=token, loja_codigo=loja_codigo)
+
+
+@app.get("/api/produtos/{codigo}", tags=["produtos"])
+async def produto_por_codigo_ou_plu(
+    codigo: str,
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
+    pool = _get_data_pool()
+    async with pool.acquire() as conn:
+        try:
+            base_sql = _produto_base_sql()
+            row = await conn.fetchrow(
+                f"""
+                {base_sql}
+                WHERE p.produto_codigo = $1
+                  AND {_sql_loja_equals("pr.loja_codigo", 2)};
+                """,
+                codigo,
+                loja_codigo,
+            )
+            if not row:
+                row = await conn.fetchrow(
+                    f"""
+                    {base_sql}
+                    WHERE p.plu = $1
+                      AND {_sql_loja_equals("pr.loja_codigo", 2)};
+                    """,
+                    codigo,
+                    loja_codigo,
+                )
+        except asyncpg.UndefinedTableError:
+            base_sql = _produto_sync_base_sql()
+            row = await conn.fetchrow(
+                f"""
+                {base_sql}
+                WHERE p.codigo = $1
+                  AND {_sql_loja_equals("p.loja", 2)};
+                """,
+                codigo,
+                loja_codigo,
+            )
+            if not row:
+                row = await conn.fetchrow(
+                    f"""
+                    {base_sql}
+                    WHERE p.plu = $1
+                      AND {_sql_loja_equals("p.loja", 2)};
+                    """,
+                    codigo,
+                    loja_codigo,
+                )
+    if not row:
+        raise HTTPException(404, "Produto não encontrado")
+    data = dict(row)
+    data.update(build_product_image_payload(data.get("codigo_imagem"), data.get("tipo_imagem")))
+    return data
 
 # -----------------------------------
 # BUSCAR POR PLU
 # -----------------------------------
 @app.get("/api/products/{plu}", tags=["produtos"])
-async def produto_por_plu(plu: str, token: dict = Depends(require_jwt)):
+async def produto_por_plu(
+    plu: str,
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
     pool = _get_data_pool()
     async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            "SELECT * FROM erp_produtos_sync WHERE plu = $1;",
-            plu,
-        )
+        try:
+            base_sql = _produto_base_sql()
+            row = await conn.fetchrow(
+                f"""
+                {base_sql}
+                WHERE p.plu = $1
+                  AND {_sql_loja_equals("pr.loja_codigo", 2)};
+                """,
+                plu,
+                loja_codigo,
+            )
+        except asyncpg.UndefinedTableError:
+            base_sql = _produto_sync_base_sql()
+            row = await conn.fetchrow(
+                f"""
+                {base_sql}
+                WHERE p.plu = $1
+                  AND {_sql_loja_equals("p.loja", 2)};
+                """,
+                plu,
+                loja_codigo,
+            )
 
     if not row:
         raise HTTPException(404, "Produto não encontrado")
-    return dict(row)
+    data = dict(row)
+    data.update(build_product_image_payload(data.get("codigo_imagem"), data.get("tipo_imagem")))
+    return data
 
 
 # -----------------------------------
 # BUSCA POR DESCRIÇÃO
 # -----------------------------------
 @app.get("/api/products/search", tags=["produtos"])
-async def buscar_produto(q: str, token: dict = Depends(require_jwt)):
+async def buscar_produto(
+    q: str,
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
     pool = _get_data_pool()
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-                SELECT * FROM erp_produtos_sync
-                WHERE descricao_completa ILIKE $1
-                LIMIT 50;
-            """,
-            f"%{q}%",
-        )
-        return [dict(r) for r in rows]
+        try:
+            base_sql = _produto_base_sql()
+            rows = await conn.fetch(
+                f"""
+                    {base_sql}
+                    WHERE p.descricao_completa ILIKE $1
+                      AND {_sql_loja_equals("pr.loja_codigo", 2)}
+                    LIMIT 50;
+                """,
+                f"%{q}%",
+                loja_codigo,
+            )
+        except asyncpg.UndefinedTableError:
+            base_sql = _produto_sync_base_sql()
+            rows = await conn.fetch(
+                f"""
+                    {base_sql}
+                    WHERE p.descricao_completa ILIKE $1
+                      AND {_sql_loja_equals("p.loja", 2)}
+                    LIMIT 50;
+                """,
+                f"%{q}%",
+                loja_codigo,
+            )
+        output = []
+        for row in rows:
+            data = dict(row)
+            data.update(build_product_image_payload(data.get("codigo_imagem"), data.get("tipo_imagem")))
+            output.append(data)
+        return output
+
+
 
 
 # -----------------------------------
 # SINCRONIZAÇÃO DE PRODUTOS
 # -----------------------------------
 @app.post("/api/products/sync", tags=["produtos"])
-async def sync_products(produtos: List[ProdutoSyncIn], token: dict = Depends(require_jwt)):
+async def sync_products(
+    produtos: List[ProdutoSyncIn],
+    token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
     pool = _get_data_pool()
+    is_admin = _is_admin_token(token)
 
-    insert_sql = """
+    insert_cadastro_sql = """
+        INSERT INTO erp_produtos (
+            produto_codigo,
+            descricao_completa,
+            referencia,
+            secao,
+            grupo,
+            subgrupo,
+            unidade,
+            ean,
+            plu,
+            refplu,
+            row_hash,
+            updated_at
+        )
+        VALUES (
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW()
+        )
+        ON CONFLICT (produto_codigo) DO UPDATE SET
+            descricao_completa = EXCLUDED.descricao_completa,
+            referencia = EXCLUDED.referencia,
+            secao = EXCLUDED.secao,
+            grupo = EXCLUDED.grupo,
+            subgrupo = EXCLUDED.subgrupo,
+            unidade = EXCLUDED.unidade,
+            ean = EXCLUDED.ean,
+            plu = EXCLUDED.plu,
+            refplu = EXCLUDED.refplu,
+            row_hash = EXCLUDED.row_hash,
+            updated_at = NOW();
+    """
+
+    insert_precos_sql = """
+        INSERT INTO erp_produtos_precos (
+            produto_codigo,
+            loja_codigo,
+            preco_normal,
+            preco_promocao1,
+            preco_promocao2,
+            custo,
+            updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, NOW())
+        ON CONFLICT (produto_codigo, loja_codigo) DO UPDATE SET
+            preco_normal = EXCLUDED.preco_normal,
+            preco_promocao1 = EXCLUDED.preco_promocao1,
+            preco_promocao2 = EXCLUDED.preco_promocao2,
+            custo = EXCLUDED.custo,
+            updated_at = NOW();
+    """
+
+    insert_estoque_sql = """
+        INSERT INTO erp_produtos_estoque (
+            produto_codigo,
+            loja_codigo,
+            estoque_disponivel,
+            updated_at
+        )
+        VALUES ($1, $2, $3, NOW())
+        ON CONFLICT (produto_codigo, loja_codigo) DO UPDATE SET
+            estoque_disponivel = EXCLUDED.estoque_disponivel,
+            updated_at = NOW();
+    """
+
+    insert_sync_sql = """
         INSERT INTO erp_produtos_sync (
             codigo,
             descricao_completa,
@@ -656,16 +1621,15 @@ async def sync_products(produtos: List[ProdutoSyncIn], token: dict = Depends(req
             preco_promocao2,
             estoque_disponivel,
             loja,
+            refplu,
             row_hash,
             custo,
             updated_at
         )
         VALUES (
-            $1, $2, $3, $4, $5, $6, $7, $8, $9,
-            $10, $11, $12, $13, $14, $15, $16, NOW()
+            $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, NOW()
         )
-        ON CONFLICT ON CONSTRAINT erp_produtos_sync_plu_loja_key DO UPDATE SET
-            codigo = EXCLUDED.codigo,
+        ON CONFLICT (codigo, loja) DO UPDATE SET
             descricao_completa = EXCLUDED.descricao_completa,
             referencia = EXCLUDED.referencia,
             secao = EXCLUDED.secao,
@@ -678,13 +1642,56 @@ async def sync_products(produtos: List[ProdutoSyncIn], token: dict = Depends(req
             preco_promocao1 = EXCLUDED.preco_promocao1,
             preco_promocao2 = EXCLUDED.preco_promocao2,
             estoque_disponivel = EXCLUDED.estoque_disponivel,
-            loja = EXCLUDED.loja,
+            refplu = EXCLUDED.refplu,
             row_hash = EXCLUDED.row_hash,
             custo = EXCLUDED.custo,
             updated_at = NOW();
     """
+    def resolve_loja(payload_loja: Optional[str]) -> str:
+        raw_loja = (payload_loja or "").strip()
+        if raw_loja:
+            if not is_admin and not _loja_matches(raw_loja, loja_codigo):
+                raise HTTPException(403, "Loja não autorizada")
+            return raw_loja
+        return loja_codigo
 
-    payload = [
+    resolved_lojas = [resolve_loja(p.loja) for p in produtos]
+    cadastro_payload = [
+        (
+            p.codigo,
+            p.descricao_completa,
+            p.referencia,
+            p.secao,
+            p.grupo,
+            p.subgrupo,
+            p.unidade,
+            p.ean,
+            p.plu,
+            None,
+            p.row_hash,
+        )
+        for p in produtos
+    ]
+    precos_payload = [
+        (
+            p.codigo,
+            resolved_lojas[idx],
+            p.preco_normal,
+            p.preco_promocao1,
+            p.preco_promocao2,
+            p.custo,
+        )
+        for idx, p in enumerate(produtos)
+    ]
+    estoque_payload = [
+        (
+            p.codigo,
+            resolved_lojas[idx],
+            p.estoque_disponivel,
+        )
+        for idx, p in enumerate(produtos)
+    ]
+    sync_payload = [
         (
             p.codigo,
             p.descricao_completa,
@@ -699,17 +1706,21 @@ async def sync_products(produtos: List[ProdutoSyncIn], token: dict = Depends(req
             p.preco_promocao1,
             p.preco_promocao2,
             p.estoque_disponivel,
-            p.loja,
+            resolved_lojas[idx],
+            None,
             p.row_hash,
             p.custo,
         )
-        for p in produtos
+        for idx, p in enumerate(produtos)
     ]
 
     try:
         async with pool.acquire() as conn:
             async with conn.transaction():
-                await conn.executemany(insert_sql, payload)
+                await conn.executemany(insert_cadastro_sql, cadastro_payload)
+                await conn.executemany(insert_precos_sql, precos_payload)
+                await conn.executemany(insert_estoque_sql, estoque_payload)
+                await conn.executemany(insert_sync_sql, sync_payload)
         return {"status": "ok", "total": len(produtos)}
 
     except Exception as e:
@@ -719,37 +1730,89 @@ async def sync_products(produtos: List[ProdutoSyncIn], token: dict = Depends(req
 # -----------------------------------
 # CLIENTES
 # -----------------------------------
-@app.get("/api/clientes", tags=["clientes"])
+@app.get("/api/clientes", tags=["clientes"], response_model=ClientesPageOut)
 async def listar_clientes(
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+    vendedor_id: Optional[str] = Query(None, alias="vendedor_id"),
+    cod_vendedor: Optional[str] = Query(None, alias="cod_vendedor"),
+    limit: Optional[int] = Query(None, alias="limit"),
     page: int = Query(1, ge=1),
     page_size: Optional[int] = Query(None, ge=1),
-    token: dict = Depends(require_jwt),
 ):
     pool = _get_data_pool()
+    vendor_override = (vendedor_id or cod_vendedor or "").strip() or None
+    if limit is not None and limit > 0 and not page_size:
+        page_size = limit
+    join_sql, clauses, params = _build_cliente_scope(token, loja_codigo, vendor_override)
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     async with pool.acquire() as conn:
-        total = await conn.fetchval("SELECT COUNT(*) FROM erp_clientes_vendedores;")
-        if page_size:
-            offset = (page - 1) * page_size
-            rows = await conn.fetch(
-                """
-                SELECT *
-                FROM erp_clientes_vendedores
-                ORDER BY cliente_codigo
-                OFFSET $1 LIMIT $2;
-                """,
-                offset,
-                page_size,
+        try:
+            total = await conn.fetchval(
+                f"SELECT COUNT(*) FROM erp_clientes c {join_sql} {where_sql};",
+                *params,
             )
-        else:
-            rows = await conn.fetch(
-                """
-                SELECT *
-                FROM erp_clientes_vendedores
-                ORDER BY cliente_codigo;
-                """
+            if page_size:
+                offset = (page - 1) * page_size
+                params_with_page = [*params, offset, page_size]
+                rows = await conn.fetch(
+                    f"""
+                    SELECT c.*
+                    FROM erp_clientes c
+                    {join_sql}
+                    {where_sql}
+                    ORDER BY c.cliente_codigo
+                    OFFSET ${len(params) + 1} LIMIT ${len(params) + 2};
+                    """,
+                    *params_with_page,
+                )
+            else:
+                rows = await conn.fetch(
+                    f"""
+                    SELECT c.*
+                    FROM erp_clientes c
+                    {join_sql}
+                    {where_sql}
+                    ORDER BY c.cliente_codigo;
+                    """,
+                    *params,
+                )
+        except asyncpg.UndefinedTableError:
+            fallback_clauses, fallback_params = _build_cliente_fallback_scope(
+                token,
+                loja_codigo,
+                vendor_override,
             )
+            fallback_where_sql = f"WHERE {' AND '.join(fallback_clauses)}" if fallback_clauses else ""
+            total = await conn.fetchval(
+                f"SELECT COUNT(DISTINCT c.cliente_codigo) FROM erp_clientes_vendedores c {fallback_where_sql};",
+                *fallback_params,
+            )
+            if page_size:
+                offset = (page - 1) * page_size
+                params_with_page = [*fallback_params, offset, page_size]
+                rows = await conn.fetch(
+                    f"""
+                    SELECT DISTINCT ON (c.cliente_codigo) c.*
+                    FROM erp_clientes_vendedores c
+                    {fallback_where_sql}
+                    ORDER BY c.cliente_codigo, c.updated_at DESC
+                    OFFSET ${len(fallback_params) + 1} LIMIT ${len(fallback_params) + 2};
+                    """,
+                    *params_with_page,
+                )
+            else:
+                rows = await conn.fetch(
+                    f"""
+                    SELECT DISTINCT ON (c.cliente_codigo) c.*
+                    FROM erp_clientes_vendedores c
+                    {fallback_where_sql}
+                    ORDER BY c.cliente_codigo, c.updated_at DESC;
+                    """,
+                    *fallback_params,
+                )
 
-    data = [dict(r) for r in rows]
+    data = [_normalize_cliente_payload(dict(r)) for r in rows]
     response = {
         "total": total,
         "data": data,
@@ -760,119 +1823,386 @@ async def listar_clientes(
     return response
 
 
-@app.get("/api/clientes/lista", tags=["clientes"])
-async def listar_clientes_lista(token: dict = Depends(require_jwt)):
+@app.get("/api/inadimplencia", tags=["inadimplencia"])
+async def listar_inadimplencia(
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+    cod_loja: Optional[str] = Query(None),
+    cod_cliente: Optional[str] = Query(None),
+    cod_vendedor: Optional[str] = Query(None),
+    vencido: Optional[bool] = Query(None),
+    limit: Optional[int] = Query(None),
+):
     pool = _get_data_pool()
+    clauses: list[str] = []
+    params: list = []
+
+    loja_param = (cod_loja or "").strip()
+    if loja_param and not _loja_matches(loja_param, loja_codigo):
+        raise HTTPException(403, "Loja não autorizada")
+    _append_loja_scope(clauses, params, loja_param or loja_codigo, "cod_loja")
+
+    if cod_cliente:
+        params.append(cod_cliente.strip())
+        clauses.append(f"cod_cliente = ${len(params)}")
+    if cod_vendedor:
+        params.append(cod_vendedor.strip())
+        clauses.append(_sql_vendor_equals("cod_vendedor", len(params)))
+    if vencido is True:
+        clauses.append("COALESCE(vencimento_real, vencimento) IS NOT NULL")
+        clauses.append("COALESCE(vencimento_real, vencimento) <= CURRENT_DATE")
+
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    sql = f"""
+        SELECT *
+        FROM erp_inadimplencia
+        {where_sql}
+        ORDER BY vencimento NULLS LAST, num_titulo
+    """
+    if limit is not None and limit > 0:
+        sql += f" LIMIT ${len(params) + 1}"
+        params.append(limit)
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT *
-            FROM erp_clientes_vendedores
-            ORDER BY cliente_codigo;
-            """
-        )
+        rows = await conn.fetch(sql, *params)
+    return [_normalize_cliente_payload(dict(r)) for r in rows]
+
+
+@app.get("/api/clientes/lista", tags=["clientes"], response_model=List[ClienteOut])
+async def listar_clientes_lista(
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+    vendedor_id: Optional[str] = Query(None, alias="vendedor_id"),
+    cod_vendedor: Optional[str] = Query(None, alias="cod_vendedor"),
+):
+    pool = _get_data_pool()
+    vendor_override = (vendedor_id or cod_vendedor or "").strip() or None
+    join_sql, clauses, params = _build_cliente_scope(token, loja_codigo, vendor_override)
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    async with pool.acquire() as conn:
+        try:
+            rows = await conn.fetch(
+                f"""
+                SELECT c.*
+                FROM erp_clientes c
+                {join_sql}
+                {where_sql}
+                ORDER BY c.cliente_codigo;
+                """,
+                *params,
+            )
+        except asyncpg.UndefinedTableError:
+            fallback_clauses, fallback_params = _build_cliente_fallback_scope(
+                token,
+                loja_codigo,
+                vendor_override,
+            )
+            fallback_where_sql = f"WHERE {' AND '.join(fallback_clauses)}" if fallback_clauses else ""
+            rows = await conn.fetch(
+                f"""
+                SELECT DISTINCT ON (c.cliente_codigo) c.*
+                FROM erp_clientes_vendedores c
+                {fallback_where_sql}
+                ORDER BY c.cliente_codigo, c.updated_at DESC;
+                """,
+                *fallback_params,
+            )
+    return [_normalize_cliente_payload(dict(r)) for r in rows]
+
+
+@app.get("/api/clientes/lista", tags=["clientes"], response_model=List[ClienteOut])
+async def listar_clientes_lista(
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+    vendedor_id: Optional[str] = Query(None, alias="vendedor_id"),
+    cod_vendedor: Optional[str] = Query(None, alias="cod_vendedor"),
+):
+    pool = _get_data_pool()
+    vendor_override = (vendedor_id or cod_vendedor or "").strip() or None
+    join_sql, clauses, params = _build_cliente_scope(token, loja_codigo, vendor_override)
+    where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    async with pool.acquire() as conn:
+        try:
+            rows = await conn.fetch(
+                f"""
+                SELECT c.*
+                FROM erp_clientes c
+                {join_sql}
+                {where_sql}
+                ORDER BY c.cliente_codigo;
+                """,
+                *params,
+            )
+        except asyncpg.UndefinedTableError:
+            fallback_clauses, fallback_params = _build_cliente_fallback_scope(
+                token,
+                loja_codigo,
+                vendor_override,
+            )
+            fallback_where_sql = f"WHERE {' AND '.join(fallback_clauses)}" if fallback_clauses else ""
+            rows = await conn.fetch(
+                f"""
+                SELECT DISTINCT ON (c.cliente_codigo) c.*
+                FROM erp_clientes_vendedores c
+                {fallback_where_sql}
+                ORDER BY c.cliente_codigo, c.updated_at DESC;
+                """,
+                *fallback_params,
+            )
     return [dict(r) for r in rows]
 
 
-@app.get("/api/clientes/lista", tags=["clientes"])
-async def listar_clientes_lista(token: dict = Depends(require_jwt)):
+@app.get("/api/clientes/{cliente_codigo}", tags=["clientes"], response_model=ClienteOut)
+async def cliente_por_codigo(
+    cliente_codigo: str,
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+    vendedor_id: Optional[str] = Query(None, alias="vendedor_id"),
+):
     pool = _get_data_pool()
+    vendor_override = (vendedor_id or "").strip() or None
+    join_sql, clauses, params = _build_cliente_scope(token, loja_codigo, vendor_override)
+    params.append(cliente_codigo)
+    clauses.append(f"c.cliente_codigo = ${len(params)}")
+    where_sql = " AND ".join(clauses)
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT *
-            FROM erp_clientes_vendedores
-            ORDER BY cliente_codigo;
-            """
-        )
-    return [dict(r) for r in rows]
-
-
-@app.get("/api/clientes/{cliente_codigo}", tags=["clientes"])
-async def cliente_por_codigo(cliente_codigo: str, token: dict = Depends(require_jwt)):
-    pool = _get_data_pool()
-    async with pool.acquire() as conn:
-        row = await conn.fetchrow(
-            """
-            SELECT *
-            FROM erp_clientes_vendedores
-            WHERE cliente_codigo = $1;
-            """,
-            cliente_codigo,
-        )
+        try:
+            row = await conn.fetchrow(
+                f"""
+                SELECT c.*
+                FROM erp_clientes c
+                {join_sql}
+                WHERE {where_sql};
+                """,
+                *params,
+            )
+        except asyncpg.UndefinedTableError:
+            fallback_clauses, fallback_params = _build_cliente_fallback_scope(
+                token,
+                loja_codigo,
+                vendor_override,
+            )
+            fallback_params.append(cliente_codigo)
+            fallback_clauses.append(f"c.cliente_codigo = ${len(fallback_params)}")
+            fallback_where_sql = " AND ".join(fallback_clauses)
+            row = await conn.fetchrow(
+                f"""
+                SELECT c.*
+                FROM erp_clientes_vendedores c
+                WHERE {fallback_where_sql}
+                ORDER BY c.updated_at DESC
+                LIMIT 1;
+                """,
+                *fallback_params,
+            )
     if not row:
         raise HTTPException(404, "Cliente não encontrado")
-    return dict(row)
+    return _normalize_cliente_payload(dict(row))
 
 
-@app.get("/api/clientes/search", tags=["clientes"])
-async def buscar_cliente(q: str, token: dict = Depends(require_jwt)):
+@app.get("/api/clientes/search", tags=["clientes"], response_model=List[ClienteOut])
+async def buscar_cliente(
+    q: str,
+    token: dict = Depends(optional_jwt),
+    loja_codigo: str = Depends(require_tenant),
+    vendedor_id: Optional[str] = Query(None, alias="vendedor_id"),
+):
     pool = _get_data_pool()
     like = f"%{q}%"
+    vendor_override = (vendedor_id or "").strip() or None
+    join_sql, clauses, params = _build_cliente_scope(token, loja_codigo, vendor_override)
+    params.append(like)
+    clauses.append(
+        f"(c.cliente_razao_social ILIKE ${len(params)} "
+        f"OR c.cliente_nome_fantasia ILIKE ${len(params)} "
+        f"OR c.cliente_cnpj_cpf ILIKE ${len(params)})"
+    )
+    where_sql = " AND ".join(clauses)
     async with pool.acquire() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT *
-            FROM erp_clientes_vendedores
-            WHERE cliente_razao_social ILIKE $1
-               OR cliente_nome_fantasia ILIKE $1
-               OR cliente_cnpj_cpf ILIKE $1
-            """,
-            like,
-        )
-    return [dict(r) for r in rows]
+        try:
+            rows = await conn.fetch(
+                f"""
+                SELECT c.*
+                FROM erp_clientes c
+                {join_sql}
+                WHERE {where_sql}
+                """,
+                *params,
+            )
+        except asyncpg.UndefinedTableError:
+            fallback_clauses, fallback_params = _build_cliente_fallback_scope(
+                token,
+                loja_codigo,
+                vendor_override,
+            )
+            fallback_params.append(like)
+            fallback_clauses.append(
+                f"(c.cliente_razao_social ILIKE ${len(fallback_params)} "
+                f"OR c.cliente_nome_fantasia ILIKE ${len(fallback_params)} "
+                f"OR c.cliente_cnpj_cpf ILIKE ${len(fallback_params)})"
+            )
+            fallback_where_sql = " AND ".join(fallback_clauses)
+            rows = await conn.fetch(
+                f"""
+                SELECT DISTINCT ON (c.cliente_codigo) c.*
+                FROM erp_clientes_vendedores c
+                WHERE {fallback_where_sql}
+                ORDER BY c.cliente_codigo, c.updated_at DESC
+                """,
+                *fallback_params,
+            )
+    return [_normalize_cliente_payload(dict(r)) for r in rows]
 
 
 # -----------------------------------
 # PLANOS DE PAGAMENTO (Postgres)
 # -----------------------------------
-def _sync_planos_pagamento_clientes(payload: List[PlanoPagamentoClienteIn]) -> int:
+def _ensure_plano_pagamentos_schema() -> None:
+    with connection.cursor() as cur:
+        cur.execute("SELECT to_regclass('public.plano_pagamento_cliente');")
+        if cur.fetchone()[0] is None:
+            return
+        cur.execute(
+            """
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'plano_pagamento_cliente';
+            """
+        )
+        cols = {row[0] for row in cur.fetchall()}
+        if "loja_codigo" not in cols:
+            cur.execute(
+                """
+                ALTER TABLE plano_pagamento_cliente
+                ADD COLUMN loja_codigo VARCHAR(10) NOT NULL DEFAULT '00001';
+                """
+            )
+        if "dias_primeira_parcela" not in cols:
+            cur.execute(
+                """
+                ALTER TABLE plano_pagamento_cliente
+                ADD COLUMN dias_primeira_parcela INTEGER;
+                """
+            )
+        cur.execute(
+            """
+            SELECT 1
+            FROM pg_indexes
+            WHERE schemaname = 'public'
+              AND indexname = 'idx_plano_pag_cli_loja'
+            LIMIT 1;
+            """
+        )
+        if cur.fetchone() is None:
+            cur.execute(
+                """
+                CREATE INDEX idx_plano_pag_cli_loja
+                ON plano_pagamento_cliente (loja_codigo);
+                """
+            )
+        cur.execute(
+            """
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'uniq_plano_pagamentos_clientes'
+            LIMIT 1;
+            """
+        )
+        if cur.fetchone() is None:
+            cur.execute(
+                """
+                ALTER TABLE plano_pagamento_cliente
+                ADD CONSTRAINT uniq_plano_pagamentos_clientes
+                UNIQUE (cliente_codigo, loja_codigo, plano_codigo);
+                """
+            )
+
+def _normalize_plano(item: PlanoPagamentoClienteIn) -> PlanoPagamentoClienteIn:
+    if item.PLANUMPAR is None:
+        item.PLANUMPAR = 1
+    if item.PLAENT is None:
+        item.PLAENT = Decimal("0")
+    if item.PLAVLRMIN is None:
+        item.PLAVLRMIN = Decimal("0")
+    if item.PLAVLRACR is None:
+        item.PLAVLRACR = Decimal("0")
+    if item.PLAINTPRI is None:
+        item.PLAINTPRI = 0
+    if item.PLAINTPAR is None:
+        item.PLAINTPAR = 0
+    return item
+
+
+def _sync_planos_pagamento_clientes(payload: List[dict], loja_codigo: str) -> dict:
+    _ensure_plano_pagamentos_schema()
     now = dj_timezone.now()
+    valid_items: List[PlanoPagamentoClienteIn] = []
+    erros = 0
+    for idx, raw in enumerate(payload, start=1):
+        try:
+            item = PlanoPagamentoClienteIn.model_validate(raw)
+            valid_items.append(_normalize_plano(item))
+        except ValidationError as exc:
+            erros += 1
+            logger.warning("Plano inválido linha %s: %s", idx, exc)
+
+    keys = {(item.CLICOD, item.PLACOD, loja_codigo) for item in valid_items}
+    existentes = set(
+        PlanoPagamentoCliente.objects.filter(
+            models.Q(*[models.Q(cliente_codigo=c, plano_codigo=p, loja_codigo=l) for c, p, l in keys])
+        ).values_list("cliente_codigo", "plano_codigo", "loja_codigo")
+    ) if keys else set()
+
+    inseridos = len(keys - existentes)
+    atualizados = len(keys & existentes)
+
     plans = [
         PlanoPagamentoCliente(
             cliente_codigo=item.CLICOD,
+            loja_codigo=loja_codigo,
             plano_codigo=item.PLACOD,
-            descricao=item.PLADES or "",
-            entrada_percentual=item.PLAENT,
-            intervalo_primeira_parcela=item.PLAINTPRI,
-            intervalo_parcelas=item.PLAINTPAR,
-            quantidade_parcelas=item.PLANUMPAR,
+            plano_descricao=item.PLADES,
+            parcelas=item.PLANUMPAR,
+            dias_primeira_parcela=item.PLAINTPRI,
+            dias_entre_parcelas=item.PLAINTPAR,
             valor_minimo=item.PLAVLRMIN,
             valor_acrescimo=item.PLAVLRACR,
             updated_at=now,
         )
-        for item in payload
+        for item in valid_items
     ]
-    if not plans:
-        return 0
-    PlanoPagamentoCliente.objects.bulk_create(
-        plans,
-        update_conflicts=True,
-        unique_fields=["cliente_codigo", "plano_codigo"],
-        update_fields=[
-            "descricao",
-            "entrada_percentual",
-            "intervalo_primeira_parcela",
-            "intervalo_parcelas",
-            "quantidade_parcelas",
-            "valor_minimo",
-            "valor_acrescimo",
-            "updated_at",
-        ],
-    )
-    return len(plans)
+    if plans:
+        PlanoPagamentoCliente.objects.bulk_create(
+            plans,
+            update_conflicts=True,
+            unique_fields=["cliente_codigo", "loja_codigo", "plano_codigo"],
+            update_fields=[
+                "plano_descricao",
+                "parcelas",
+                "dias_primeira_parcela",
+                "dias_entre_parcelas",
+                "valor_minimo",
+                "valor_acrescimo",
+                "updated_at",
+            ],
+        )
+
+    return {
+        "total_recebidos": len(payload),
+        "inseridos": inseridos,
+        "atualizados": atualizados,
+        "erros": erros,
+    }
 
 
 @app.get("/api/planos-pagamento-cliente", tags=["planos_pagamento"])
 async def listar_planos_pagamento_cliente(
     cliente_codigo: str = Query(...),
     token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
 ):
-    plans = await run_in_threadpool(
-        lambda: list(
-            PlanoPagamentoCliente.objects.filter(cliente_codigo=cliente_codigo).order_by("plano_codigo")
-        )
-    )
+    await run_in_threadpool(_ensure_plano_pagamentos_schema)
+    plans = await run_in_threadpool(_fetch_planos_pagamento, cliente_codigo, loja_codigo)
     data = [_plan_to_dict(plan) for plan in plans]
     return {"cliente_codigo": cliente_codigo, "total": len(data), "data": data}
 
@@ -881,23 +2211,21 @@ async def listar_planos_pagamento_cliente(
 async def listar_planos_pagamento_cliente_path(
     cliente_codigo: str,
     token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
 ):
-    plans = await run_in_threadpool(
-        lambda: list(
-            PlanoPagamentoCliente.objects.filter(cliente_codigo=cliente_codigo).order_by("plano_codigo")
-        )
-    )
+    await run_in_threadpool(_ensure_plano_pagamentos_schema)
+    plans = await run_in_threadpool(_fetch_planos_pagamento, cliente_codigo, loja_codigo)
     data = [_plan_to_dict(plan) for plan in plans]
     return {"cliente_codigo": cliente_codigo, "total": len(data), "data": data}
 
 
 @app.post("/api/planos-pagamento-clientes/sync", tags=["planos_pagamento"])
 async def sync_planos_pagamento_clientes(
-    payload: List[PlanoPagamentoClienteIn],
+    payload: list = Body(..., openapi_extra=PLANOS_PAGAMENTO_SCHEMA),
     token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
 ):
-    total = await run_in_threadpool(_sync_planos_pagamento_clientes, payload)
-    return {"status": "ok", "total": total}
+    raise HTTPException(410, "Sincronizacao de planos desativada. Use o admin.")
 
 
 # -----------------------------------
@@ -959,9 +2287,11 @@ def _sync_lojas(payload: List[LojaIn]) -> int:
 async def listar_lojas(
     q: Optional[str] = None,
     token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
 ):
     def _fetch():
-        qs = Loja.objects.all().order_by("codigo")
+        codigo_regex = _loja_regex(loja_codigo)
+        qs = Loja.objects.filter(codigo__regex=codigo_regex).order_by("codigo")
         if q:
             return list(
                 qs.filter(
@@ -982,8 +2312,12 @@ async def listar_lojas(
 async def detalhar_loja(
     loja_codigo: str,
     token: dict = Depends(require_jwt),
+    loja_tenant: str = Depends(require_tenant),
 ):
-    loja = await run_in_threadpool(lambda: Loja.objects.filter(codigo=loja_codigo).first())
+    if not _loja_matches(loja_codigo, loja_tenant):
+        raise HTTPException(403, "Loja não autorizada")
+    codigo_regex = _loja_regex(loja_codigo)
+    loja = await run_in_threadpool(lambda: Loja.objects.filter(codigo__regex=codigo_regex).first())
     if not loja:
         raise HTTPException(404, "Loja não encontrada")
     return _loja_to_dict(loja)
@@ -993,7 +2327,12 @@ async def detalhar_loja(
 async def sync_lojas(
     payload: List[LojaIn],
     token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
 ):
+    if not _is_admin_token(token):
+        for item in payload:
+            if item.LOJCOD and not _loja_matches(item.LOJCOD, loja_codigo):
+                raise HTTPException(403, "Loja não autorizada")
     total = await run_in_threadpool(_sync_lojas, payload)
     return {"status": "ok", "total": total}
 
@@ -1004,6 +2343,19 @@ async def sync_lojas(
 @app.get("/")
 async def root(token: dict = Depends(require_jwt)):
     return {"status": "API funcionando", "user_id": token.get("id")}
+
+
+@app.get("/api/me", tags=["auth"])
+async def api_me(
+    token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
+    return {
+        "id": token.get("id"),
+        "username": token.get("username"),
+        "vendor_code": token.get("vendor_code"),
+        "loja_codigo": loja_codigo,
+    }
 
 
 # -----------------------------------
@@ -1104,15 +2456,14 @@ async def company_nfe(
     return JSONResponse(result["payload"], status_code=result["status"])
 
 
-@auth_router.post("/login", response_model=LoginResponse)
-async def login(payload: LoginRequest):
+async def _login(payload: LoginRequest, loja_codigo: str) -> dict:
     user = await _get_user_by_credentials(payload.username.strip(), payload.password)
     if not user:
         raise HTTPException(401, "Usuário ou senha inválidos", headers={"WWW-Authenticate": "Bearer"})
-    vendor = await _resolve_vendor_by_code(user.get("vendor_code"))
+    vendor = await _resolve_vendor_by_code(user.get("vendor_code"), loja_codigo)
     # Fallback por nome apenas se não houver vendor_code cadastrado
     if not vendor:
-        vendor = await _resolve_vendor_for_username(payload.username)
+        vendor = await _resolve_vendor_for_username(payload.username, loja_codigo)
     vendor_code = vendor.get("vendor_code") if vendor else None
     token = _create_access_token(user["id"], user["username"], vendor_code)
     user_data = {
@@ -1132,13 +2483,30 @@ async def login(payload: LoginRequest):
     return {"token": token_out, "user": user_data}
 
 
+@auth_router.post("/login", response_model=LoginResponse)
+async def login(
+    payload: LoginRequest,
+    request: Request,
+    loja_codigo: str = Depends(require_tenant),
+):
+    return await _login(payload, loja_codigo)
+
+
 @app.post("/api/login", tags=["auth"])
-async def login_alias(payload: LoginRequest):
-    return await login(payload)
+async def login_alias(
+    payload: LoginRequest,
+    request: Request,
+    loja_codigo: str = Depends(require_tenant),
+):
+    return await _login(payload, loja_codigo)
 
 
 @auth_router.post("/users", response_model=UserOut, dependencies=[Depends(require_admin)])
-async def create_user(payload: UserCreateRequest):
+async def create_user(
+    payload: UserCreateRequest,
+    request: Request,
+    loja_codigo: str = Depends(require_tenant),
+):
     username = (payload.username or "").strip()
     if not username:
         raise HTTPException(400, "Usuário inválido")
@@ -1164,7 +2532,7 @@ async def create_user(payload: UserCreateRequest):
             payload.is_active,
         )
 
-    vendor = await _resolve_vendor_by_code(row.get("vendor_code"))
+    vendor = await _resolve_vendor_by_code(row.get("vendor_code"), loja_codigo)
     return {
         "id": row["id"],
         "username": row["username"],
@@ -1177,9 +2545,26 @@ async def create_user(payload: UserCreateRequest):
 
 
 # -----------------------------------
+# IMAGENS (MinIO)
+# -----------------------------------
+@images_router.post("/upload", tags=["imagens"])
+async def upload_imagem(token: dict = Depends(require_jwt)):
+    detail = "Upload de imagens é feito exclusivamente via MinIO Client (mc). A API não realiza upload."
+    if not DISABLE_IMAGE_UPLOAD:
+        detail = f"{detail} (DISABLE_IMAGE_UPLOAD=false)"
+    raise HTTPException(503, detail)
+
+
+@images_router.get("/{tipo}/{codigo}", tags=["imagens"])
+async def resolver_imagem(tipo: str, codigo: str):
+    key = _build_image_key(tipo, (codigo or "").strip())
+    return {"url": _public_image_url(key)}
+
+
+# -----------------------------------
 # PEDIDOS
 # -----------------------------------
-def _resolve_cliente(cliente_id: str) -> Client:
+def _resolve_cliente(cliente_id: str, loja_codigo: Optional[str] = None) -> Client:
     client_code = (cliente_id or "").strip()
     if client_code == "0":
         return Client.get_default_consumer()
@@ -1203,11 +2588,17 @@ def _resolve_cliente(cliente_id: str) -> Client:
         return cliente
 
     # 2) Fallback: tentar resolver pelo staging de clientes sincronizados (ERP)
-    sync_entry = ClienteSync.objects.filter(cliente_codigo=client_code).first()
+    sync_qs = ClienteSync.objects.filter(cliente_codigo=client_code)
+    if loja_codigo:
+        sync_qs = sync_qs.filter(loja_codigo=loja_codigo)
+    sync_entry = sync_qs.first()
     if not sync_entry and client_code.isdigit():
         stripped = client_code.lstrip("0")
         if stripped:
-            sync_entry = ClienteSync.objects.filter(cliente_codigo=stripped).first()
+            sync_qs = ClienteSync.objects.filter(cliente_codigo=stripped)
+            if loja_codigo:
+                sync_qs = sync_qs.filter(loja_codigo=loja_codigo)
+            sync_entry = sync_qs.first()
 
     if sync_entry:
         doc_digits = "".join(ch for ch in (sync_entry.cliente_cnpj_cpf or "") if ch.isdigit())
@@ -1256,6 +2647,11 @@ def _resolve_produto(codigo_produto: str) -> Product:
     normalized = Product.normalize_code(raw)
     produto = None
 
+    # ProdutoSync nao expõe timestamp em algumas bases; escolhemos um fallback seguro.
+    produto_sync_ordering = "-updated_at"
+    if not any(field.name == "updated_at" for field in ProdutoSync._meta.fields):
+        produto_sync_ordering = "-codigo"
+
     # 1) PLU (ERP Studio envia índice PLU). Tentamos:
     #    a) match direto em Product.plu_code (raw, só dígitos, sem zeros à esquerda)
     #    b) fallback via tabela erp_produtos_sync para descobrir o código e então localizar Product
@@ -1270,8 +2666,7 @@ def _resolve_produto(codigo_produto: str) -> Product:
 
         produto = Product.objects.filter(plu_code__in=plu_candidates).first()
         if not produto:
-            # ProdutoSync não possui campo de timestamp; usamos um fallback determinístico
-            psync = ProdutoSync.objects.filter(plu__in=plu_candidates).order_by("-codigo").first()
+            psync = ProdutoSync.objects.filter(plu__in=plu_candidates).order_by(produto_sync_ordering).first()
             if psync and psync.codigo:
                 code_from_sync = str(psync.codigo).strip()
                 norm_code = Product.normalize_code(code_from_sync)
@@ -1296,8 +2691,7 @@ def _resolve_produto(codigo_produto: str) -> Product:
             stripped = digits.lstrip("0") or "0"
             code_candidates.add(stripped)
 
-        # ProdutoSync não possui campo de timestamp; usamos um fallback determinístico
-        psync = ProdutoSync.objects.filter(codigo__in=[c for c in code_candidates if c]).order_by("-codigo").first()
+        psync = ProdutoSync.objects.filter(codigo__in=[c for c in code_candidates if c]).order_by(produto_sync_ordering).first()
         if psync:
             # Se a sync tem PLU, reaproveita a lógica acima
             plu_from_sync = str(psync.plu).strip() if psync.plu else None
@@ -1333,13 +2727,17 @@ def _resolve_produto(codigo_produto: str) -> Product:
     return produto
 
 
-def _create_pedido_sync(payload: PedidoIn, token_vendor_code: Optional[str] = None):
+def _create_pedido_sync(
+    payload: PedidoIn,
+    loja_codigo: str,
+    token_vendor_code: Optional[str] = None,
+):
     try:
         itens_payload = payload.itens
         if not itens_payload:
             raise HTTPException(400, "Lista de itens não pode ser vazia")
 
-        cliente = _resolve_cliente(payload.cliente_id)
+        cliente = _resolve_cliente(payload.cliente_id, loja_codigo)
 
         itens_resolvidos = []
         total_calculado = Decimal("0")
@@ -1370,6 +2768,20 @@ def _create_pedido_sync(payload: PedidoIn, token_vendor_code: Optional[str] = No
             )
         vendedor_codigo = (payload.vendedor_codigo or token_vendor_code or "").strip()
         vendedor_nome = (payload.vendedor_nome or "").strip()
+        if not vendedor_codigo and token_vendor_code:
+            vendedor_codigo = token_vendor_code
+        if vendedor_codigo and (not vendedor_nome or vendedor_nome.strip().lower().startswith("loja")):
+            qs = ClienteSync.objects.filter(vendedor_codigo=vendedor_codigo)
+            if loja_codigo:
+                qs = qs.filter(loja_codigo=loja_codigo)
+            match = (
+                qs.exclude(vendedor_nome__isnull=True)
+                .exclude(vendedor_nome="")
+                .order_by("vendedor_nome")
+                .first()
+            )
+            if match:
+                vendedor_nome = match.vendedor_nome or vendedor_nome
 
         # Idempotência: evita duplicar se já recebemos o mesmo pedido recentemente.
         window_start = dj_timezone.now() - timedelta(minutes=10)
@@ -1386,18 +2798,24 @@ def _create_pedido_sync(payload: PedidoIn, token_vendor_code: Optional[str] = No
         if existente:
             return existente, False
 
+        loja_field = _get_pedido_loja_field()
+        if not loja_field:
+            raise HTTPException(500, "Modelo Pedido sem loja_codigo")
+
         with transaction.atomic():
-            pedido = Pedido.objects.create(
-                data_criacao=payload.data_criacao,
-                total=payload.total,
-                cliente=cliente,
-                status=status_val,
-                pagamento_status=pagamento_status,
-                forma_pagamento=forma_pagamento,
-                frete_modalidade=frete_modalidade,
-                vendedor_codigo=vendedor_codigo,
-                vendedor_nome=vendedor_nome,
-            )
+            pedido_kwargs = {
+                "data_criacao": payload.data_criacao,
+                "total": payload.total,
+                "cliente": cliente,
+                "status": status_val,
+                "pagamento_status": pagamento_status,
+                "forma_pagamento": forma_pagamento,
+                "frete_modalidade": frete_modalidade,
+                "vendedor_codigo": vendedor_codigo,
+                "vendedor_nome": vendedor_nome,
+                loja_field: loja_codigo,
+            }
+            pedido = Pedido.objects.create(**pedido_kwargs)
             ItemPedido.objects.bulk_create(
                 [
                     ItemPedido(
@@ -1405,6 +2823,7 @@ def _create_pedido_sync(payload: PedidoIn, token_vendor_code: Optional[str] = No
                         produto=prod,
                         quantidade=quant,
                         valor_unitario=valor,
+                        loja_codigo=loja_codigo,
                     )
                     for (prod, quant, valor) in itens_resolvidos
                 ]
@@ -1451,11 +2870,27 @@ def _pedido_to_dict(pedido: Pedido):
     }
 
 
-def _listar_pedidos_sync(limit: int, cliente_id: Optional[str], status: Optional[str]):
+def _get_pedido_loja_field() -> Optional[str]:
+    for field in Pedido._meta.fields:
+        if field.name in ("loja_codigo", "loja"):
+            return field.name
+    return None
+
+
+def _listar_pedidos_sync(
+    limit: int,
+    cliente_id: Optional[str],
+    status: Optional[str],
+    loja_codigo: str,
+):
+    loja_field = _get_pedido_loja_field()
+    if not loja_field:
+        raise HTTPException(500, "Modelo Pedido sem loja_codigo")
     qs = Pedido.objects.select_related("cliente").prefetch_related("itens__produto").order_by("-data_recebimento")
+    qs = qs.filter(**{loja_field: loja_codigo})
     if cliente_id:
         try:
-            cliente = _resolve_cliente(cliente_id)
+            cliente = _resolve_cliente(cliente_id, loja_codigo)
             qs = qs.filter(cliente=cliente)
         except HTTPException:
             qs = qs.none()
@@ -1464,11 +2899,14 @@ def _listar_pedidos_sync(limit: int, cliente_id: Optional[str], status: Optional
     return [_pedido_to_dict(p) for p in qs[:limit]]
 
 
-def _get_pedido_sync(pedido_id: int):
+def _get_pedido_sync(pedido_id: int, loja_codigo: str):
+    loja_field = _get_pedido_loja_field()
+    if not loja_field:
+        raise HTTPException(500, "Modelo Pedido sem loja_codigo")
     pedido = (
         Pedido.objects.select_related("cliente")
         .prefetch_related("itens__produto")
-        .filter(pk=pedido_id)
+        .filter(pk=pedido_id, **{loja_field: loja_codigo})
         .first()
     )
     if not pedido:
@@ -1477,8 +2915,17 @@ def _get_pedido_sync(pedido_id: int):
 
 
 @router.post("/pedidos", tags=["pedidos"])
-async def criar_pedido(payload: PedidoIn, token: dict = Depends(require_jwt)):
-    pedido, created = await run_in_threadpool(_create_pedido_sync, payload, token.get("vendor_code"))
+async def criar_pedido(
+    payload: PedidoIn,
+    token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
+    pedido, created = await run_in_threadpool(
+        _create_pedido_sync,
+        payload,
+        loja_codigo,
+        token.get("vendor_code"),
+    )
     status_code = 201 if created else 200
     mensagem = "Pedido criado com sucesso" if created else "Pedido já recebido recentemente"
     return JSONResponse(
@@ -1503,20 +2950,34 @@ async def listar_pedidos(
     cliente_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
 ):
     if status and status not in PEDIDO_STATUS_VALUES:
         raise HTTPException(400, f"Status inválido. Opções: {sorted(PEDIDO_STATUS_VALUES)}")
-    return await run_in_threadpool(_listar_pedidos_sync, limit, cliente_id, status)
+    return await run_in_threadpool(_listar_pedidos_sync, limit, cliente_id, status, loja_codigo)
 
 
 @router.get("/pedidos/{pedido_id}", tags=["pedidos"])
-async def detalhar_pedido(pedido_id: int, token: dict = Depends(require_jwt)):
-    return await run_in_threadpool(_get_pedido_sync, pedido_id)
+async def detalhar_pedido(
+    pedido_id: int,
+    token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
+    return await run_in_threadpool(_get_pedido_sync, pedido_id, loja_codigo)
 
 
 @router.post("/pedidos-venda", tags=["pedidos"])
-async def criar_pedido_venda(payload: PedidoIn, token: dict = Depends(require_jwt)):
-    pedido, created = await run_in_threadpool(_create_pedido_sync, payload, token.get("vendor_code"))
+async def criar_pedido_venda(
+    payload: PedidoIn,
+    token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
+    pedido, created = await run_in_threadpool(
+        _create_pedido_sync,
+        payload,
+        loja_codigo,
+        token.get("vendor_code"),
+    )
     if created:
         return {
             "id": pedido.id,
@@ -1536,16 +2997,22 @@ async def listar_pedidos_venda(
     cliente_id: Optional[str] = None,
     status: Optional[str] = None,
     token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
 ):
-    return await run_in_threadpool(_listar_pedidos_sync, limit, cliente_id, status)
+    return await run_in_threadpool(_listar_pedidos_sync, limit, cliente_id, status, loja_codigo)
 
 
 @router.get("/pedidos-venda/{pedido_id}", tags=["pedidos"])
-async def detalhar_pedido_venda(pedido_id: int, token: dict = Depends(require_jwt)):
-    return await run_in_threadpool(_get_pedido_sync, pedido_id)
+async def detalhar_pedido_venda(
+    pedido_id: int,
+    token: dict = Depends(require_jwt),
+    loja_codigo: str = Depends(require_tenant),
+):
+    return await run_in_threadpool(_get_pedido_sync, pedido_id, loja_codigo)
 
 
 app.include_router(router)
+app.include_router(images_router)
 app.include_router(clientes_router, dependencies=[Depends(require_jwt)])
 app.include_router(auth_router)
 

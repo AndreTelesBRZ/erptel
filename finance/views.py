@@ -11,6 +11,9 @@ def index(request):
     show_paid = request.GET.get('paid', '').strip()
 
     qs = FinanceEntry.objects.all()
+    loja_codigo = getattr(request, "loja_codigo", None)
+    if loja_codigo:
+        qs = qs.filter(loja_codigo=loja_codigo)
     if entry_type in ('receivable', 'payable'):
         qs = qs.filter(entry_type=entry_type)
     if show_paid == 'open':

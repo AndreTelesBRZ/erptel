@@ -56,26 +56,26 @@ class ClienteSyncSerializer(serializers.ModelSerializer):
 class PlanoPagamentoClienteSerializer(serializers.ModelSerializer):
     CLICOD = serializers.CharField(source="cliente_codigo")
     PLACOD = serializers.CharField(source="plano_codigo")
-    PLADES = serializers.CharField(source="descricao", allow_blank=True, required=False)
+    PLADES = serializers.CharField(source="plano_descricao", allow_blank=True, required=False)
     PLAENT = serializers.DecimalField(
-        source="entrada_percentual",
         max_digits=18,
         decimal_places=6,
         required=False,
         allow_null=True,
+        write_only=True,
     )
     PLAINTPRI = serializers.IntegerField(
-        source="intervalo_primeira_parcela",
+        source="dias_primeira_parcela",
         required=False,
         allow_null=True,
     )
     PLAINTPAR = serializers.IntegerField(
-        source="intervalo_parcelas",
+        source="dias_entre_parcelas",
         required=False,
         allow_null=True,
     )
     PLANUMPAR = serializers.IntegerField(
-        source="quantidade_parcelas",
+        source="parcelas",
         required=False,
         allow_null=True,
     )
@@ -107,6 +107,18 @@ class PlanoPagamentoClienteSerializer(serializers.ModelSerializer):
             "PLAVLRMIN",
             "PLAVLRACR",
         ]
+
+    def validate(self, attrs):
+        cliente = (attrs.get("cliente_codigo") or "").strip()
+        plano = (attrs.get("plano_codigo") or "").strip()
+        descricao = (attrs.get("plano_descricao") or "").strip()
+        if not cliente:
+            raise serializers.ValidationError({"CLICOD": "CLICOD é obrigatório."})
+        if not plano:
+            raise serializers.ValidationError({"PLACOD": "PLACOD é obrigatório."})
+        if not descricao:
+            raise serializers.ValidationError({"PLADES": "PLADES é obrigatório."})
+        return attrs
 
 
 class LojaSerializer(serializers.ModelSerializer):
@@ -192,17 +204,35 @@ class PedidoSerializer(serializers.ModelSerializer):
         queryset=Client.objects.all(),
         source="cliente",
     )
+    loja_codigo = serializers.CharField(required=False, allow_blank=True)
     total_itens = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Pedido
-        fields = ["id", "data_criacao", "data_recebimento", "total", "cliente_id", "itens", "total_itens"]
+        fields = [
+            "id",
+            "data_criacao",
+            "data_recebimento",
+            "total",
+            "cliente_id",
+            "loja_codigo",
+            "itens",
+            "total_itens",
+        ]
         read_only_fields = ["id", "data_recebimento"]
 
     def validate(self, attrs):
         itens_data = attrs.get("itens") or []
         if not itens_data:
             raise serializers.ValidationError({"itens": "Inclua pelo menos um item no pedido."})
+
+        loja_codigo = attrs.get("loja_codigo")
+        if loja_codigo is not None:
+            loja_codigo = loja_codigo.strip()
+            if not loja_codigo:
+                attrs.pop("loja_codigo", None)
+            else:
+                attrs["loja_codigo"] = loja_codigo
 
         total_itens = sum(
             (item_data.get("quantidade") or Decimal("0")) * (item_data.get("valor_unitario") or Decimal("0"))
@@ -227,7 +257,11 @@ class PedidoSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         itens_data = validated_data.pop("itens", [])
+        loja_codigo = validated_data.get("loja_codigo") or None
         pedido = Pedido.objects.create(**validated_data)
+        if loja_codigo:
+            for item_data in itens_data:
+                item_data.setdefault("loja_codigo", loja_codigo)
         ItemPedido.objects.bulk_create(
             [ItemPedido(pedido=pedido, **item_data) for item_data in itens_data]
         )
@@ -255,3 +289,7 @@ class PedidoSerializer(serializers.ModelSerializer):
             }
         data["itens"] = ItemPedidoSerializer(instance.itens.all(), many=True, context=self.context).data
         return data
+
+
+class PedidoStatusSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=Pedido.Status.choices)

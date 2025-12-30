@@ -16,6 +16,7 @@ from .services import get_report_context
 
 
 def create_sample_data():
+    loja_codigo = "00003"
     company = Company.objects.create(
         code="00000000000123",
         name="Empresa Matriz",
@@ -44,22 +45,26 @@ def create_sample_data():
         client=client,
         status=Quote.Status.APPROVED,
         company=company,
+        loja_codigo=loja_codigo,
     )
     QuoteItem.objects.create(
         quote=quote_approved,
         quantity=1,
         unit_price=Decimal("200.00"),
+        loja_codigo=loja_codigo,
     )
 
     quote_converted = Quote.objects.create(
         client=client,
         status=Quote.Status.CONVERTED,
         company=company,
+        loja_codigo=loja_codigo,
     )
     QuoteItem.objects.create(
         quote=quote_converted,
         quantity=1,
         unit_price=Decimal("150.00"),
+        loja_codigo=loja_codigo,
     )
 
     order = Order.objects.create(
@@ -67,11 +72,13 @@ def create_sample_data():
         status=Order.Status.CONFIRMED,
         issue_date=timezone.localdate(),
         company=company,
+        loja_codigo=loja_codigo,
     )
     OrderItem.objects.create(
         order=order,
         quantity=2,
         unit_price=Decimal("150.00"),
+        loja_codigo=loja_codigo,
     )
 
     PurchaseOrder.objects.create(
@@ -91,7 +98,7 @@ class ReportServicesTests(TestCase):
         cls.company = create_sample_data()
 
     def test_get_report_context_returns_expected_metrics(self):
-        context = get_report_context(company=self.company)
+        context = get_report_context(company=self.company, loja_codigo="00003")
 
         sales_summary = context["sales_report"]["summary"]
         purchase_summary = context["purchase_report"]["summary"]

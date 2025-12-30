@@ -108,11 +108,12 @@ class ClienteSync(models.Model):
 	vendedor_nome = models.CharField(max_length=255, null=True, blank=True)
 	ultima_venda_data = models.DateTimeField(null=True, blank=True)
 	ultima_venda_valor = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True)
+	loja_codigo = models.CharField(max_length=10, null=True, blank=True)
 	updated_at = models.DateTimeField(null=True, blank=True)
 
 	class Meta:
 		managed = False
-		db_table = 'erp_clientes_vendedores'
+		db_table = 'erp_clientes_vendedores_view'
 		ordering = ('cliente_razao_social', 'cliente_codigo')
 
 	def __str__(self) -> str:

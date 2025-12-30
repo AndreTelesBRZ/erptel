@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+
+{% block object-tools-items %}
+  <li>
+    <a href="{% url 'admin:api_planopagamentocliente_import_csv' %}" class="addlink">Import CSV</a>
+  </li>
+  <li>
+    <a href="{% url 'admin:api_planopagamentocliente_export_csv' %}" class="viewsitelink">Export CSV</a>
+  </li>
+  {{ block.super }}
+{% endblock %}

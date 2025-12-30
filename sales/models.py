@@ -18,7 +18,7 @@ class Quote(models.Model):
 		DECLINED = 'declined', _('Recusado')
 		CONVERTED = 'converted', _('Convertido')
 
-	number = models.CharField(_('Número'), max_length=20, unique=True, blank=True)
+	number = models.CharField(_('Número'), max_length=20, blank=True)
 	client = models.ForeignKey('clients.Client', verbose_name=_('Cliente'), on_delete=models.PROTECT, related_name='quotes')
 	company = models.ForeignKey(Company, verbose_name=_('Empresa'), related_name='quotes', on_delete=models.CASCADE, null=True, blank=True)
 	salesperson = models.ForeignKey(
@@ -34,8 +34,12 @@ class Quote(models.Model):
 	notes = models.TextField(_('Observações'), blank=True)
 	created_at = models.DateTimeField(_('Criado em'), auto_now_add=True)
 	updated_at = models.DateTimeField(_('Atualizado em'), auto_now=True)
+	loja_codigo = models.CharField(_('Loja'), max_length=10, default='00001')
 
 	class Meta:
+		constraints = [
+			models.UniqueConstraint(fields=['number', 'loja_codigo'], name='uniq_sales_quote_number_loja'),
+		]
 		ordering = ['-created_at']
 		verbose_name = _('Orçamento')
 		verbose_name_plural = _('Orçamentos')
@@ -49,10 +53,10 @@ class Quote(models.Model):
 		super().save(*args, **kwargs)
 
 	def _generate_number(self):
-		return self.get_next_number(self.company_id or self.company)
+		return self.get_next_number(company=self.company_id or self.company, loja_codigo=self.loja_codigo)
 
 	@classmethod
-	def get_next_number(cls, company=None):
+	def get_next_number(cls, company=None, loja_codigo=None):
 		prefix = timezone.now().strftime('OR%y')
 		qs = cls.objects.filter(number__startswith=prefix)
 		company_id = None
@@ -60,6 +64,8 @@ class Quote(models.Model):
 			company_id = getattr(company, 'pk', None) if not isinstance(company, int) else company
 		if company_id:
 			qs = qs.filter(company_id=company_id)
+		if loja_codigo:
+			qs = qs.filter(loja_codigo=loja_codigo)
 		last = qs.order_by('-number').first()
 		sequence = 1
 		if last:
@@ -83,6 +89,7 @@ class QuoteItem(models.Model):
 	unit_price = models.DecimalField(_('Preço unitário'), max_digits=12, decimal_places=2, default=Decimal('0.00'))
 	discount = models.DecimalField(_('Desconto'), max_digits=12, decimal_places=2, default=Decimal('0.00'))
 	sort_order = models.PositiveIntegerField(_('Ordem'), default=0)
+	loja_codigo = models.CharField(_('Loja'), max_length=10, default='00001')
 
 	class Meta:
 		ordering = ['sort_order', 'pk']
@@ -114,7 +121,7 @@ class Order(models.Model):
 		SHIPPED = 'shipped', _('Enviado')
 		CANCELLED = 'cancelled', _('Cancelado')
 
-	number = models.CharField(_('Número'), max_length=20, unique=True, blank=True)
+	number = models.CharField(_('Número'), max_length=20, blank=True)
 	client = models.ForeignKey('clients.Client', verbose_name=_('Cliente'), on_delete=models.PROTECT, related_name='orders')
 	company = models.ForeignKey(Company, verbose_name=_('Empresa'), related_name='orders', on_delete=models.CASCADE, null=True, blank=True)
 	quote = models.ForeignKey(Quote, verbose_name=_('Orçamento de origem'), related_name='orders', on_delete=models.SET_NULL, blank=True, null=True)
@@ -124,8 +131,12 @@ class Order(models.Model):
 	notes = models.TextField(_('Observações'), blank=True)
 	created_at = models.DateTimeField(_('Criado em'), auto_now_add=True)
 	updated_at = models.DateTimeField(_('Atualizado em'), auto_now=True)
+	loja_codigo = models.CharField(_('Loja'), max_length=10, default='00001')
 
 	class Meta:
+		constraints = [
+			models.UniqueConstraint(fields=['number', 'loja_codigo'], name='uniq_sales_order_number_loja'),
+		]
 		ordering = ['-created_at']
 		verbose_name = _('Pedido')
 		verbose_name_plural = _('Pedidos')
@@ -143,6 +154,8 @@ class Order(models.Model):
 		qs = Order.objects.filter(number__startswith=prefix)
 		if self.company_id:
 			qs = qs.filter(company_id=self.company_id)
+		if self.loja_codigo:
+			qs = qs.filter(loja_codigo=self.loja_codigo)
 		last = qs.order_by('-number').first()
 		sequence = 1
 		if last:
@@ -165,6 +178,7 @@ class OrderItem(models.Model):
 	unit_price = models.DecimalField(_('Preço unitário'), max_digits=12, decimal_places=2, default=Decimal('0.00'))
 	discount = models.DecimalField(_('Desconto'), max_digits=12, decimal_places=2, default=Decimal('0.00'))
 	sort_order = models.PositiveIntegerField(_('Ordem'), default=0)
+	loja_codigo = models.CharField(_('Loja'), max_length=10, default='00001')
 
 	class Meta:
 		ordering = ['sort_order', 'pk']
@@ -263,6 +277,7 @@ class Pedido(models.Model):
 		choices=FreightMode.choices,
 		default=FreightMode.SEM_FRETE,
 	)
+	loja_codigo = models.CharField(_('Loja'), max_length=10, default='00001')
 	vendedor_codigo = models.CharField(_('Código do vendedor'), max_length=50, blank=True)
 	vendedor_nome = models.CharField(_('Nome do vendedor'), max_length=150, blank=True)
 
@@ -279,6 +294,7 @@ class ItemPedido(models.Model):
 	produto = models.ForeignKey('products.Product', on_delete=models.PROTECT)
 	quantidade = models.DecimalField(max_digits=10, decimal_places=2)
 	valor_unitario = models.DecimalField(max_digits=10, decimal_places=2)
+	loja_codigo = models.CharField(_('Loja'), max_length=10, default='00001')
 
 	class Meta:
 		verbose_name = _('Item do Pedido (API)')

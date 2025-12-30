@@ -35,6 +35,33 @@ UNICODE_LATIN_REPLACEMENTS = str.maketrans({
 })
 
 
+def _loja_codigo_candidates(loja_codigo: str | None) -> list[str]:
+	value = (loja_codigo or '').strip()
+	if not value:
+		return []
+	if not value.isdigit():
+		return [value]
+	stripped = value.lstrip('0') or '0'
+	candidates = {
+		value,
+		stripped,
+		value.zfill(5),
+		value.zfill(6),
+		stripped.zfill(5),
+		stripped.zfill(6),
+	}
+	return [c for c in candidates if c]
+
+
+def _filter_by_loja_codigo(queryset, loja_codigo: str | None):
+	if not loja_codigo or not hasattr(queryset.model, 'loja_codigo'):
+		return queryset
+	candidates = _loja_codigo_candidates(loja_codigo)
+	if not candidates:
+		return queryset
+	return queryset.filter(loja_codigo__in=candidates)
+
+
 def _build_quote_item_metrics(items):
 	total_quantity = Decimal('0')
 	total_discount = Decimal('0')
@@ -137,8 +164,10 @@ def _apply_common_filters(queryset, request):
 	q = (request.GET.get('q') or '').strip()
 	status = (request.GET.get('status') or '').strip()
 	company = getattr(request, 'company', None)
+	loja_codigo = getattr(request, 'loja_codigo', None)
 	if company and hasattr(queryset.model, 'company_id'):
 		queryset = queryset.filter(company=company)
+	queryset = _filter_by_loja_codigo(queryset, loja_codigo)
 	if q:
 		queryset = queryset.filter(
 			Q(number__icontains=q) |
@@ -170,10 +199,10 @@ def quote_list(request):
 
 @login_required
 def quote_detail(request, pk):
-	quote = get_object_or_404(
-		Quote.objects.select_related('client', 'salesperson__user').prefetch_related('items__product'),
-		pk=pk,
-	)
+	loja_codigo = getattr(request, 'loja_codigo', None)
+	quote_qs = Quote.objects.select_related('client', 'salesperson__user').prefetch_related('items__product')
+	quote_qs = _filter_by_loja_codigo(quote_qs, loja_codigo)
+	quote = get_object_or_404(quote_qs, pk=pk)
 	if quote.company and quote.company not in getattr(request, 'available_companies', []):
 		messages.error(request, 'Você não tem permissão para acessar este orçamento.')
 		return redirect('sales:quote_list')
@@ -188,10 +217,11 @@ def quote_detail(request, pk):
 
 @login_required
 def quote_pdf(request, pk):
-	quote = get_object_or_404(
-		Quote.objects.select_related('client', 'company', 'salesperson__user').prefetch_related('items__product'),
-		pk=pk,
-	)
+	loja_codigo = getattr(request, 'loja_codigo', None)
+	quote_qs = Quote.objects.select_related('client', 'company', 'salesperson__user').prefetch_related('items__product')
+	if loja_codigo:
+		quote_qs = quote_qs.filter(loja_codigo=loja_codigo)
+	quote = get_object_or_404(quote_qs, pk=pk)
 	if quote.company and quote.company not in getattr(request, 'available_companies', []):
 		messages.error(request, 'Você não tem permissão para acessar este orçamento.')
 		return redirect('sales:quote_list')
@@ -459,7 +489,11 @@ def quote_create(request):
 @login_required
 @transaction.atomic
 def quote_edit(request, pk):
-	quote = get_object_or_404(Quote, pk=pk)
+	loja_codigo = getattr(request, 'loja_codigo', None)
+	quote_qs = Quote.objects.all()
+	if loja_codigo:
+		quote_qs = quote_qs.filter(loja_codigo=loja_codigo)
+	quote = get_object_or_404(quote_qs, pk=pk)
 	perms = _get_sales_permissions(request.user)
 	if not perms['manage'] or not perms.get('edit', False):
 		messages.error(request, 'Você não tem permissão para editar este orçamento.')
@@ -473,6 +507,7 @@ def quote_edit(request, pk):
 def _quote_form_view(request, instance=None, perms=None):
 	quote = instance or Quote()
 	active_company = getattr(request, 'company', None)
+	loja_codigo = getattr(request, 'loja_codigo', None)
 	perms = perms or _get_sales_permissions(request.user)
 	if request.method != 'POST' and quote.pk:
 		quote.items.filter(product__isnull=True, description='').delete()
@@ -495,6 +530,8 @@ def _quote_form_view(request, instance=None, perms=None):
 				messages.error(request, 'Este orçamento pertence a outra empresa.')
 				return redirect('sales:quote_detail', pk=quote.pk)
 			quote = form.save(commit=False)
+			if not quote.pk and loja_codigo:
+				quote.loja_codigo = loja_codigo
 			if not quote.company:
 				if active_company:
 					quote.company = active_company
@@ -534,6 +571,8 @@ def _quote_form_view(request, instance=None, perms=None):
 				item.description = item.product.name
 			item.sort_order = index
 			item.quote = quote
+			if quote.loja_codigo:
+				item.loja_codigo = quote.loja_codigo
 			item.save()
 
 		if perms.get('delete', False):
@@ -557,6 +596,8 @@ def _quote_form_view(request, instance=None, perms=None):
 	).order_by('-updated_at')
 	if active_company:
 		recent_drafts = recent_drafts.filter(company=active_company)
+	if loja_codigo:
+		recent_drafts = recent_drafts.filter(loja_codigo=loja_codigo)
 	if quote.pk:
 		recent_drafts = recent_drafts.exclude(pk=quote.pk)
 	recent_drafts = list(recent_drafts[:6])
@@ -634,10 +675,10 @@ def quote_product_lookup(request):
 @login_required
 @transaction.atomic
 def quote_convert_to_order(request, pk):
-	quote = get_object_or_404(
-		Quote.objects.select_related('client').prefetch_related('items__product'),
-		pk=pk,
-	)
+	loja_codigo = getattr(request, 'loja_codigo', None)
+	quote_qs = Quote.objects.select_related('client').prefetch_related('items__product')
+	quote_qs = _filter_by_loja_codigo(quote_qs, loja_codigo)
+	quote = get_object_or_404(quote_qs, pk=pk)
 	if quote.company and quote.company not in getattr(request, 'available_companies', []):
 		messages.error(request, 'Você não tem permissão para converter orçamentos desta empresa.')
 		return redirect('sales:quote_detail', pk=quote.pk)
@@ -654,6 +695,7 @@ def quote_convert_to_order(request, pk):
 			quote=quote,
 			status=Order.Status.DRAFT,
 			company=quote.company,
+			loja_codigo=quote.loja_codigo,
 		)
 		bulk = []
 		for item in quote.items.filter(product__isnull=False):
@@ -665,6 +707,7 @@ def quote_convert_to_order(request, pk):
 				unit_price=item.unit_price,
 				discount=item.discount,
 				sort_order=item.sort_order,
+				loja_codigo=quote.loja_codigo,
 			))
 		OrderItem.objects.bulk_create(bulk)
 		quote.status = Quote.Status.CONVERTED
@@ -693,10 +736,10 @@ def order_list(request):
 
 @login_required
 def order_detail(request, pk):
-	order = get_object_or_404(
-		Order.objects.select_related('client', 'quote').prefetch_related('items__product'),
-		pk=pk,
-	)
+	loja_codigo = getattr(request, 'loja_codigo', None)
+	order_qs = Order.objects.select_related('client', 'quote').prefetch_related('items__product')
+	order_qs = _filter_by_loja_codigo(order_qs, loja_codigo)
+	order = get_object_or_404(order_qs, pk=pk)
 	if order.company and order.company not in getattr(request, 'available_companies', []):
 		messages.error(request, 'Você não tem permissão para acessar este pedido.')
 		return redirect('sales:order_list')
@@ -721,6 +764,7 @@ def order_edit(request, pk):
 def _order_form_view(request, instance=None, perms=None):
 	order = instance or Order()
 	active_company = getattr(request, 'company', None)
+	loja_codigo = getattr(request, 'loja_codigo', None)
 	perms = perms or _get_sales_permissions(request.user)
 	if request.method == 'POST':
 		form = OrderForm(request.POST, instance=order)
@@ -741,6 +785,8 @@ def _order_form_view(request, instance=None, perms=None):
 				messages.error(request, 'Este pedido pertence a outra empresa.')
 				return redirect('sales:order_detail', pk=order.pk)
 			order = form.save(commit=False)
+			if not order.pk and loja_codigo:
+				order.loja_codigo = loja_codigo
 			if not order.company:
 				if active_company:
 					order.company = active_company
@@ -758,6 +804,8 @@ def _order_form_view(request, instance=None, perms=None):
 				if not item.description and item.product:
 					item.description = item.product.name
 				item.sort_order = index
+				if order.loja_codigo:
+					item.loja_codigo = order.loja_codigo
 				item.save()
 			if perms.get('delete', False):
 				for deleted in formset.deleted_objects:
@@ -826,6 +874,8 @@ def seller_delete(request, pk):
 def api_order_list(request):
 	q = (request.GET.get('q') or '').strip()
 	orders = Pedido.objects.select_related('cliente').order_by('-data_recebimento')
+	loja_codigo = getattr(request, 'loja_codigo', None)
+	orders = _filter_by_loja_codigo(orders, loja_codigo)
 	if q:
 		orders = orders.filter(
 			Q(cliente__first_name__icontains=q) |
@@ -841,12 +891,12 @@ def api_order_list(request):
 
 @login_required
 def api_order_detail(request, pk):
-	order = get_object_or_404(
-		Pedido.objects.select_related('cliente').prefetch_related(
-			Prefetch('itens', queryset=ItemPedido.objects.select_related('produto'))
-		),
-		pk=pk,
+	loja_codigo = getattr(request, 'loja_codigo', None)
+	order_qs = Pedido.objects.select_related('cliente').prefetch_related(
+		Prefetch('itens', queryset=ItemPedido.objects.select_related('produto'))
 	)
+	order_qs = _filter_by_loja_codigo(order_qs, loja_codigo)
+	order = get_object_or_404(order_qs, pk=pk)
 	items = []
 	for item in order.itens.all():
 		qty = item.quantidade or Decimal('0')

@@ -3,7 +3,7 @@ from decimal import Decimal
 from typing import List, Optional
 
 import psycopg2
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 router = APIRouter()
@@ -24,7 +24,6 @@ class ProdutoSync(BaseModel):
     preco_promocao2: Decimal = Decimal("0")
     estoque_disponivel: Decimal = Decimal("0")
     custo: Decimal = Decimal("0")
-    loja: str
     row_hash: str
 
 
@@ -59,13 +58,16 @@ def get_conn():
 
 
 @router.post("/api/products/sync")
-def sync_produtos(produtos: List[ProdutoSync]):
+def sync_produtos(produtos: List[ProdutoSync], request: Request):
     conn = get_conn()
     cur = conn.cursor()
+    loja_codigo = getattr(request.state, "loja_codigo", None)
+    if not loja_codigo:
+        raise HTTPException(status_code=500, detail="Loja não resolvida")
 
-    sql = """
-        INSERT INTO erp_produtos_sync (
-            codigo,
+    sql_cadastro = """
+        INSERT INTO erp_produtos (
+            produto_codigo,
             descricao_completa,
             referencia,
             secao,
@@ -74,43 +76,73 @@ def sync_produtos(produtos: List[ProdutoSync]):
             unidade,
             ean,
             plu,
-            preco_normal,
-            preco_promocao1,
-            preco_promocao2,
-            estoque_disponivel,
-            loja,
+            refplu,
             row_hash,
-            custo,
             updated_at
         )
         VALUES (
             %(codigo)s, %(descricao_completa)s, %(referencia)s, %(secao)s, %(grupo)s,
-            %(subgrupo)s, %(unidade)s, %(ean)s, %(plu)s, %(preco_normal)s,
-            %(preco_promocao1)s, %(preco_promocao2)s, %(estoque_disponivel)s, %(loja)s,
-            %(row_hash)s, %(custo)s, NOW()
+            %(subgrupo)s, %(unidade)s, %(ean)s, %(plu)s, %(refplu)s, %(row_hash)s, NOW()
         )
-        ON CONFLICT ON CONSTRAINT erp_produtos_sync_plu_loja_key DO UPDATE SET
-           codigo = EXCLUDED.codigo,
-           descricao_completa = EXCLUDED.descricao_completa,
-           referencia = EXCLUDED.referencia,
-           secao = EXCLUDED.secao,
-           grupo = EXCLUDED.grupo,
-           subgrupo = EXCLUDED.subgrupo,
-           unidade = EXCLUDED.unidade,
-           ean = EXCLUDED.ean,
-           preco_normal = EXCLUDED.preco_normal,
-           preco_promocao1 = EXCLUDED.preco_promocao1,
-           preco_promocao2 = EXCLUDED.preco_promocao2,
-           estoque_disponivel = EXCLUDED.estoque_disponivel,
-           loja = EXCLUDED.loja,
-           row_hash = EXCLUDED.row_hash,
-           custo = EXCLUDED.custo,
-           updated_at = NOW();
+        ON CONFLICT (produto_codigo) DO UPDATE SET
+            descricao_completa = EXCLUDED.descricao_completa,
+            referencia = EXCLUDED.referencia,
+            secao = EXCLUDED.secao,
+            grupo = EXCLUDED.grupo,
+            subgrupo = EXCLUDED.subgrupo,
+            unidade = EXCLUDED.unidade,
+            ean = EXCLUDED.ean,
+            plu = EXCLUDED.plu,
+            refplu = EXCLUDED.refplu,
+            row_hash = EXCLUDED.row_hash,
+            updated_at = NOW();
+    """
+
+    sql_precos = """
+        INSERT INTO erp_produtos_precos (
+            produto_codigo,
+            loja_codigo,
+            preco_normal,
+            preco_promocao1,
+            preco_promocao2,
+            custo,
+            updated_at
+        )
+        VALUES (
+            %(codigo)s, %(loja_codigo)s, %(preco_normal)s, %(preco_promocao1)s,
+            %(preco_promocao2)s, %(custo)s, NOW()
+        )
+        ON CONFLICT (produto_codigo, loja_codigo) DO UPDATE SET
+            preco_normal = EXCLUDED.preco_normal,
+            preco_promocao1 = EXCLUDED.preco_promocao1,
+            preco_promocao2 = EXCLUDED.preco_promocao2,
+            custo = EXCLUDED.custo,
+            updated_at = NOW();
+    """
+
+    sql_estoque = """
+        INSERT INTO erp_produtos_estoque (
+            produto_codigo,
+            loja_codigo,
+            estoque_disponivel,
+            updated_at
+        )
+        VALUES (
+            %(codigo)s, %(loja_codigo)s, %(estoque_disponivel)s, NOW()
+        )
+        ON CONFLICT (produto_codigo, loja_codigo) DO UPDATE SET
+            estoque_disponivel = EXCLUDED.estoque_disponivel,
+            updated_at = NOW();
     """
 
     try:
         for p in produtos:
-            cur.execute(sql, p.dict())
+            data = p.dict()
+            data.setdefault("refplu", None)
+            data["loja_codigo"] = loja_codigo
+            cur.execute(sql_cadastro, data)
+            cur.execute(sql_precos, data)
+            cur.execute(sql_estoque, data)
         conn.commit()
     finally:
         cur.close()
@@ -120,11 +152,72 @@ def sync_produtos(produtos: List[ProdutoSync]):
 
 
 @router.post("/api/clientes/sync")
-def sync_clientes(clientes: List[ClienteSync]):
+def sync_clientes(clientes: List[ClienteSync], request: Request):
     conn = get_conn()
     cur = conn.cursor()
+    loja_codigo = getattr(request.state, "loja_codigo", None)
+    if not loja_codigo:
+        raise HTTPException(status_code=500, detail="Loja não resolvida")
 
-    sql = """
+    sql_cadastro = """
+        INSERT INTO erp_clientes (
+            cliente_codigo,
+            cliente_status,
+            cliente_razao_social,
+            cliente_nome_fantasia,
+            cliente_cnpj_cpf,
+            cliente_tipo_pf_pj,
+            cliente_endereco,
+            cliente_numero,
+            cliente_bairro,
+            cliente_cidade,
+            cliente_uf,
+            cliente_cep,
+            cliente_telefone1,
+            cliente_telefone2,
+            cliente_email,
+            cliente_inscricao_municipal,
+            updated_at
+        )
+        VALUES (
+            %(cliente_codigo)s,
+            %(cliente_status)s,
+            %(cliente_razao_social)s,
+            %(cliente_nome_fantasia)s,
+            %(cliente_cnpj_cpf)s,
+            %(cliente_tipo_pf_pj)s,
+            %(cliente_endereco)s,
+            %(cliente_numero)s,
+            %(cliente_bairro)s,
+            %(cliente_cidade)s,
+            %(cliente_uf)s,
+            %(cliente_cep)s,
+            %(cliente_telefone1)s,
+            %(cliente_telefone2)s,
+            %(cliente_email)s,
+            %(cliente_inscricao_municipal)s,
+            NOW()
+        )
+        ON CONFLICT (cliente_codigo) DO UPDATE SET
+            cliente_status = EXCLUDED.cliente_status,
+            cliente_razao_social = EXCLUDED.cliente_razao_social,
+            cliente_nome_fantasia = EXCLUDED.cliente_nome_fantasia,
+            cliente_cnpj_cpf = EXCLUDED.cliente_cnpj_cpf,
+            cliente_tipo_pf_pj = EXCLUDED.cliente_tipo_pf_pj,
+            cliente_endereco = EXCLUDED.cliente_endereco,
+            cliente_numero = EXCLUDED.cliente_numero,
+            cliente_bairro = EXCLUDED.cliente_bairro,
+            cliente_cidade = EXCLUDED.cliente_cidade,
+            cliente_uf = EXCLUDED.cliente_uf,
+            cliente_cep = EXCLUDED.cliente_cep,
+            cliente_telefone1 = EXCLUDED.cliente_telefone1,
+            cliente_telefone2 = EXCLUDED.cliente_telefone2,
+            cliente_email = EXCLUDED.cliente_email,
+            cliente_inscricao_municipal = EXCLUDED.cliente_inscricao_municipal,
+            updated_at = NOW();
+    """
+
+    sql_vinculo = """
         INSERT INTO erp_clientes_vendedores (
             cliente_codigo,
             cliente_status,
@@ -144,6 +237,7 @@ def sync_clientes(clientes: List[ClienteSync]):
             cliente_inscricao_municipal,
             vendedor_codigo,
             vendedor_nome,
+            loja_codigo,
             updated_at
         )
         VALUES (
@@ -165,9 +259,10 @@ def sync_clientes(clientes: List[ClienteSync]):
             %(cliente_inscricao_municipal)s,
             %(vendedor_codigo)s,
             %(vendedor_nome)s,
+            %(loja_codigo)s,
             NOW()
         )
-        ON CONFLICT (cliente_codigo) DO UPDATE SET
+        ON CONFLICT (cliente_codigo, loja_codigo) DO UPDATE SET
             cliente_status = EXCLUDED.cliente_status,
             cliente_razao_social = EXCLUDED.cliente_razao_social,
             cliente_nome_fantasia = EXCLUDED.cliente_nome_fantasia,
@@ -190,7 +285,10 @@ def sync_clientes(clientes: List[ClienteSync]):
 
     try:
         for c in clientes:
-            cur.execute(sql, c.dict())
+            data = c.dict()
+            data["loja_codigo"] = loja_codigo
+            cur.execute(sql_cadastro, data)
+            cur.execute(sql_vinculo, data)
         conn.commit()
     finally:
         cur.close()
