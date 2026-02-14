@@ -201,15 +201,32 @@ class PedidoIntegrationAPITests(APITestCase):
 		self.assertEqual(list_resp.status_code, status.HTTP_200_OK)
 		self.assertGreaterEqual(list_resp.json().get("count"), 1)
 
+	def test_patch_pedido_venda_is_blocked(self):
+		pedido = Pedido.objects.create(
+			cliente=self.client_obj,
+			data_criacao=timezone.now(),
+			total=Decimal('10.00'),
+		)
+		ItemPedido.objects.create(
+			pedido=pedido,
+			produto=self.product,
+			quantidade=Decimal('1'),
+			valor_unitario=Decimal('10.00'),
+		)
+		url = reverse('pedidos-venda-detail', args=[pedido.id])
+		resp = self.client.patch(url, {"plano_codigo": "X1"}, format='json')
+		self.assertEqual(resp.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
+
 	def test_filters_by_recebimento(self):
 		hoje = timezone.now()
 		ontem = hoje - timedelta(days=1)
+		corte = hoje - timedelta(hours=12)
 		pedido_antigo = Pedido.objects.create(
 			cliente=self.client_obj,
 			data_criacao=ontem,
-			data_recebimento=ontem,
 			total=Decimal('5.00'),
 		)
+		Pedido.objects.filter(pk=pedido_antigo.pk).update(data_recebimento=ontem)
 		ItemPedido.objects.create(
 			pedido=pedido_antigo,
 			produto=self.product,
@@ -230,8 +247,106 @@ class PedidoIntegrationAPITests(APITestCase):
 		)
 
 		url = reverse('pedidos-venda-list')
-		resp = self.client.get(url, {'recebido_depois': ontem.isoformat()})
+		resp = self.client.get(url, {'recebido_depois': corte.isoformat()})
 		self.assertEqual(resp.status_code, status.HTTP_200_OK)
 		results = resp.json()["results"]
 		self.assertTrue(any(p["id"] == pedido_recente.id for p in results))
 		self.assertFalse(any(p["id"] == pedido_antigo.id for p in results))
+
+	def test_detail_contains_required_order_schema(self):
+		pedido = Pedido.objects.create(
+			cliente=self.client_obj,
+			data_criacao=timezone.now(),
+			total=Decimal('35.00'),
+			status=Pedido.Status.ORCAMENTO,
+			pagamento_status=Pedido.PaymentStatus.AGUARDANDO,
+			forma_pagamento='Boleto',
+			plano_codigo='30D',
+			frete_modalidade=Pedido.FreightMode.CIF,
+		)
+		ItemPedido.objects.create(
+			pedido=pedido,
+			produto=self.product,
+			quantidade=Decimal('3'),
+			valor_unitario=Decimal('10.00'),
+		)
+		pedido.recalcular_total(save=True)
+		pedido.refresh_from_db()
+
+		resp = self.client.get(reverse('pedidos-venda-detail', args=[pedido.id]))
+		self.assertEqual(resp.status_code, status.HTTP_200_OK)
+		body = resp.json()
+
+		self.assertEqual(body["id"], pedido.id)
+		self.assertIn("identificadores", body)
+		self.assertEqual(body["identificadores"]["erp_id"], pedido.id)
+		self.assertIn("cliente", body)
+		self.assertEqual(body["cliente"]["id"], self.client_obj.id)
+		self.assertIn("pagamento", body)
+		self.assertEqual(body["pagamento"]["forma"], "Boleto")
+		self.assertIn("frete", body)
+		self.assertEqual(body["frete"]["modalidade"], Pedido.FreightMode.CIF)
+		self.assertIn("itens", body)
+		self.assertEqual(len(body["itens"]), 1)
+		self.assertEqual(body["itens"][0]["subtotal"], "30.00")
+		self.assertEqual(body["quantidade_itens"], 1)
+		self.assertEqual(body["quantidade_total_itens"], 3.0)
+		self.assertIn("totais", body)
+		self.assertEqual(body["totais"]["subtotal"], 30.0)
+		self.assertEqual(body["totais"]["total"], 30.0)
+
+	def test_pedido_detail_reflects_erp_changes_on_next_read(self):
+		pedido = Pedido.objects.create(
+			cliente=self.client_obj,
+			data_criacao=timezone.now(),
+			total=Decimal('10.00'),
+			status=Pedido.Status.ORCAMENTO,
+		)
+		item = ItemPedido.objects.create(
+			pedido=pedido,
+			produto=self.product,
+			quantidade=Decimal('1'),
+			valor_unitario=Decimal('10.00'),
+		)
+		pedido.recalcular_total(save=True)
+
+		url = reverse('pedidos-venda-detail', args=[pedido.id])
+		before = self.client.get(url)
+		self.assertEqual(before.status_code, status.HTTP_200_OK)
+		self.assertEqual(before.json()["totais"]["total"], 10.0)
+
+		item.quantidade = Decimal('4')
+		item.valor_unitario = Decimal('12.00')
+		item.save()
+		pedido.status = Pedido.Status.EM_SEPARACAO
+		pedido.pagamento_status = Pedido.PaymentStatus.FATURA_A_VENCER
+		pedido.recalcular_total(save=True)
+		pedido.save(update_fields=["status", "pagamento_status", "updated_at"])
+
+		after = self.client.get(url)
+		self.assertEqual(after.status_code, status.HTTP_200_OK)
+		payload = after.json()
+		self.assertEqual(payload["status"], Pedido.Status.EM_SEPARACAO)
+		self.assertEqual(payload["pagamento"]["status"], Pedido.PaymentStatus.FATURA_A_VENCER)
+		self.assertEqual(payload["itens"][0]["quantidade"], "4.00")
+		self.assertEqual(payload["itens"][0]["valor_unitario"], "12.00")
+		self.assertEqual(payload["totais"]["total"], 48.0)
+
+	def test_get_pedido_detail_alias_endpoint(self):
+		pedido = Pedido.objects.create(
+			cliente=self.client_obj,
+			data_criacao=timezone.now(),
+			total=Decimal('10.00'),
+		)
+		ItemPedido.objects.create(
+			pedido=pedido,
+			produto=self.product,
+			quantidade=Decimal('1'),
+			valor_unitario=Decimal('10.00'),
+		)
+		resp = self.client.get(reverse('api-pedidos-detail', args=[pedido.id]))
+		self.assertEqual(resp.status_code, status.HTTP_200_OK)
+		body = resp.json()
+		self.assertEqual(body["id"], pedido.id)
+		self.assertEqual(body["quantidade_itens"], 1)
+		self.assertIn("totais", body)

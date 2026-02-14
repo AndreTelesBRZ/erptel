@@ -13,7 +13,7 @@ class Migration(migrations.Migration):
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
                 ("cliente_codigo", models.CharField(max_length=20)),
                 ("plano_codigo", models.CharField(max_length=20)),
-                ("descricao", models.CharField(blank=True, max_length=255)),
+                ("plano_descricao", models.CharField(blank=True, db_column="plano_descricao", max_length=255)),
                 ("entrada_percentual", models.DecimalField(blank=True, decimal_places=6, max_digits=18, null=True)),
                 ("intervalo_primeira_parcela", models.IntegerField(blank=True, null=True)),
                 ("intervalo_parcelas", models.IntegerField(blank=True, null=True)),

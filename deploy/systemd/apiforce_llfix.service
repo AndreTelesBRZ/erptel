@@ -1,0 +1,17 @@
+[Unit]
+Description=API Force FastAPI (LLFix)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/apps/Django
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/home/ubuntu/apps/Django/.env.llfix
+ExecStart=/home/ubuntu/apps/Django/venv/bin/uvicorn erp_api:app --host 0.0.0.0 --port 9100 --proxy-headers --forwarded-allow-ips="*"
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

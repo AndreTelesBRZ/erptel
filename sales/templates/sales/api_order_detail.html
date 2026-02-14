@@ -2,14 +2,23 @@
 
 {% block title %}Pedido API #{{ order.pk }}{% endblock %}
 {% block hero_title %}Pedido API #{{ order.pk }}{% endblock %}
-{% block hero_subtitle %}Recebido via integração FastAPI{% endblock %}
+{% block hero_subtitle %}Leitura do estado atual no ERP{% endblock %}
 
 {% block content %}
   <div class="level">
     <div class="level-left">
       <a class="button" href="{% url 'sales:api_order_list' %}">Voltar</a>
     </div>
+    <div class="level-right">
+      <a class="button is-link" href="{% url 'sales:api_order_pdf' order.pk %}" target="_blank" rel="noopener">Gerar PDF</a>
+    </div>
   </div>
+
+  <article class="message is-info">
+    <div class="message-body">
+      Pedido em modo somente leitura. Alterações devem ser feitas no ERP e serão refletidas aqui ao reabrir a tela.
+    </div>
+  </article>
 
   <div class="box">
     <div class="columns">
@@ -44,6 +53,10 @@
         <p>{{ order.forma_pagamento|default:"—" }}</p>
       </div>
       <div class="column">
+        <p class="heading">Plano</p>
+        <p>{{ order.plano_codigo|default:"—" }}</p>
+      </div>
+      <div class="column">
         <p class="heading">Frete</p>
         <p>{{ order.get_frete_modalidade_display }}</p>
       </div>
@@ -51,7 +64,7 @@
     <div class="columns">
       <div class="column">
         <p class="heading">Vendedor (código)</p>
-        <p>{{ order.vendedor_codigo|default:"—" }}</p>
+        <p>{{ order.resolved_vendedor_codigo|default:"—" }}</p>
       </div>
       <div class="column">
         <p class="heading">Vendedor (nome)</p>
@@ -89,4 +102,12 @@
       </tbody>
     </table>
   </div>
+
+  <script>
+    window.addEventListener('pageshow', (event) => {
+      if (event.persisted) {
+        window.location.reload();
+      }
+    });
+  </script>
 {% endblock %}

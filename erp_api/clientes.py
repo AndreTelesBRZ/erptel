@@ -1,12 +1,41 @@
+from datetime import datetime
+import logging
 import os
 import psycopg2
-import logging
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException
+
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
+
+from .tenant import determine_request_loja_codigo
 
 router = APIRouter(prefix="/api/clientes", tags=["clientes"])
 logger = logging.getLogger("erp_api.clientes")
+
+DEFAULT_LOJA_CODIGO = os.getenv("DEFAULT_LOJA_CODIGO") or "00001"
+LOJA_SQL_DEFAULT = DEFAULT_LOJA_CODIGO.replace("'", "''")
+
+
+def _resolve_loja_codigo(request: Optional[Request]) -> str:
+    codigo = determine_request_loja_codigo(request, DEFAULT_LOJA_CODIGO)
+    if not codigo:
+        logger.warning("Loja não identificada na requisição, usando padrão %s", DEFAULT_LOJA_CODIGO)
+        codigo = DEFAULT_LOJA_CODIGO
+    return codigo
+
+
+def _parse_timestamp(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        try:
+            return datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            return None
 
 
 class ClienteSync(BaseModel):
@@ -64,11 +93,11 @@ def get_conn():
 
 
 @router.post("/sync")
-def sync_clientes(clientes: List[ClienteSync]):
+def sync_clientes(clientes: List[ClienteSync], request: Request):
     conn = None
     cur = None
 
-    sql = """
+    sql = f"""
         INSERT INTO erp_clientes_vendedores (
             cliente_codigo,
             cliente_razao_social,
@@ -89,6 +118,7 @@ def sync_clientes(clientes: List[ClienteSync]):
             vendedor_nome,
             ultima_venda_data,
             ultima_venda_valor,
+            loja_codigo,
             updated_at
         )
         VALUES (
@@ -111,6 +141,7 @@ def sync_clientes(clientes: List[ClienteSync]):
             %(vendedor_nome)s,
             %(ultima_venda_data)s,
             %(ultima_venda_valor)s,
+            COALESCE(%(loja_codigo)s, '{LOJA_SQL_DEFAULT}'),
             NOW()
         )
         ON CONFLICT (cliente_codigo)
@@ -133,6 +164,7 @@ def sync_clientes(clientes: List[ClienteSync]):
             vendedor_nome = EXCLUDED.vendedor_nome,
             ultima_venda_data = EXCLUDED.ultima_venda_data,
             ultima_venda_valor = EXCLUDED.ultima_venda_valor,
+            loja_codigo = COALESCE(EXCLUDED.loja_codigo, '{LOJA_SQL_DEFAULT}'),
             updated_at = NOW();
     """
 
@@ -140,10 +172,24 @@ def sync_clientes(clientes: List[ClienteSync]):
         conn = get_conn()
         cur = conn.cursor()
 
+        loja_codigo = _resolve_loja_codigo(request)
+        loja_codigo = loja_codigo.strip() if loja_codigo else DEFAULT_LOJA_CODIGO
+        if not loja_codigo:
+            loja_codigo = DEFAULT_LOJA_CODIGO
         for c in clientes:
             data = c.dict()
             for key in _CLIENTE_COLUMNS:
                 data.setdefault(key, None)
+            raw_data = data.get("ultima_venda_data")
+            parsed_data = _parse_timestamp(raw_data)
+            if raw_data and parsed_data is None:
+                logger.warning(
+                    "Data de última venda inválida para cliente %s: %r",
+                    c.cliente_codigo,
+                    raw_data,
+                )
+            data["ultima_venda_data"] = parsed_data
+            data["loja_codigo"] = loja_codigo
             cur.execute(sql, data)
 
         conn.commit()

@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from .models import ProdutoSync, PlanoPagamentoCliente, Loja
+from .models import ProdutoSync, Loja
 from sales.models import Pedido, ItemPedido
 from products.models import Product
 from clients.models import Client, ClienteSync
@@ -51,62 +51,6 @@ class ClienteSyncSerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         data["cliente_cnpj_cpf"] = _only_digits(data.get("cliente_cnpj_cpf"))
         return data
-
-
-class PlanoPagamentoClienteSerializer(serializers.ModelSerializer):
-    CLICOD = serializers.CharField(source="cliente_codigo")
-    PLACOD = serializers.CharField(source="plano_codigo")
-    PLADES = serializers.CharField(source="descricao", allow_blank=True, required=False)
-    PLAENT = serializers.DecimalField(
-        source="entrada_percentual",
-        max_digits=18,
-        decimal_places=6,
-        required=False,
-        allow_null=True,
-    )
-    PLAINTPRI = serializers.IntegerField(
-        source="intervalo_primeira_parcela",
-        required=False,
-        allow_null=True,
-    )
-    PLAINTPAR = serializers.IntegerField(
-        source="intervalo_parcelas",
-        required=False,
-        allow_null=True,
-    )
-    PLANUMPAR = serializers.IntegerField(
-        source="quantidade_parcelas",
-        required=False,
-        allow_null=True,
-    )
-    PLAVLRMIN = serializers.DecimalField(
-        source="valor_minimo",
-        max_digits=18,
-        decimal_places=6,
-        required=False,
-        allow_null=True,
-    )
-    PLAVLRACR = serializers.DecimalField(
-        source="valor_acrescimo",
-        max_digits=18,
-        decimal_places=6,
-        required=False,
-        allow_null=True,
-    )
-
-    class Meta:
-        model = PlanoPagamentoCliente
-        fields = [
-            "CLICOD",
-            "PLACOD",
-            "PLADES",
-            "PLAENT",
-            "PLAINTPRI",
-            "PLAINTPAR",
-            "PLANUMPAR",
-            "PLAVLRMIN",
-            "PLAVLRACR",
-        ]
 
 
 class LojaSerializer(serializers.ModelSerializer):
@@ -162,7 +106,7 @@ class ItemPedidoSerializer(serializers.ModelSerializer):
         write_only=True,
     )
     # Representação (read)
-    produto_id = serializers.IntegerField(source="produto_id", read_only=True)
+    produto_id = serializers.IntegerField(read_only=True)
     produto_codigo = serializers.CharField(source="produto.code", read_only=True)
     produto_nome = serializers.CharField(source="produto.name", read_only=True)
     subtotal = serializers.SerializerMethodField()
@@ -180,10 +124,10 @@ class ItemPedidoSerializer(serializers.ModelSerializer):
         ]
 
     @staticmethod
-    def get_subtotal(obj) -> Decimal:
+    def get_subtotal(obj) -> str:
         qty = obj.quantidade or Decimal("0")
         unit = obj.valor_unitario or Decimal("0")
-        return qty * unit
+        return f"{(qty * unit):.2f}"
 
 
 class PedidoSerializer(serializers.ModelSerializer):
@@ -193,14 +137,45 @@ class PedidoSerializer(serializers.ModelSerializer):
         source="cliente",
     )
     total_itens = serializers.SerializerMethodField(read_only=True)
+    quantidade_itens = serializers.SerializerMethodField(read_only=True)
+    quantidade_total_itens = serializers.SerializerMethodField(read_only=True)
+    totais = serializers.SerializerMethodField(read_only=True)
+    identificadores = serializers.SerializerMethodField(read_only=True)
+    pagamento = serializers.SerializerMethodField(read_only=True)
+    frete = serializers.SerializerMethodField(read_only=True)
+    status_info = serializers.SerializerMethodField(read_only=True)
 
     class Meta:
         model = Pedido
-        fields = ["id", "data_criacao", "data_recebimento", "total", "cliente_id", "itens", "total_itens"]
-        read_only_fields = ["id", "data_recebimento"]
+        fields = [
+            "id",
+            "data_criacao",
+            "data_recebimento",
+            "updated_at",
+            "total",
+            "status",
+            "pagamento_status",
+            "frete_modalidade",
+            "forma_pagamento",
+            "plano_codigo",
+            "cliente_id",
+            "itens",
+            "total_itens",
+            "quantidade_itens",
+            "quantidade_total_itens",
+            "totais",
+            "identificadores",
+            "pagamento",
+            "frete",
+            "status_info",
+        ]
+        read_only_fields = ["id", "data_recebimento", "updated_at"]
 
     def validate(self, attrs):
-        itens_data = attrs.get("itens") or []
+        itens_data = attrs.get("itens")
+        if itens_data is None:
+            return attrs
+
         if not itens_data:
             raise serializers.ValidationError({"itens": "Inclua pelo menos um item no pedido."})
 
@@ -229,13 +204,83 @@ class PedidoSerializer(serializers.ModelSerializer):
         itens_data = validated_data.pop("itens", [])
         pedido = Pedido.objects.create(**validated_data)
         ItemPedido.objects.bulk_create(
-            [ItemPedido(pedido=pedido, **item_data) for item_data in itens_data]
+            [
+                ItemPedido(
+                    pedido=pedido,
+                    produto=item_data.get("produto"),
+                    produto_codigo=getattr(item_data.get("produto"), "code", "") or "",
+                    quantidade=item_data.get("quantidade"),
+                    valor_unitario=item_data.get("valor_unitario"),
+                    subtotal=(item_data.get("quantidade") or Decimal("0")) * (item_data.get("valor_unitario") or Decimal("0")),
+                )
+                for item_data in itens_data
+            ]
         )
+        pedido.recalcular_total(save=True)
         return pedido
 
     @staticmethod
     def get_total_itens(obj) -> Decimal:
         return sum((item.quantidade or Decimal("0")) * (item.valor_unitario or Decimal("0")) for item in obj.itens.all())
+
+    @staticmethod
+    def get_quantidade_itens(obj) -> int:
+        return obj.itens.count()
+
+    @staticmethod
+    def get_quantidade_total_itens(obj) -> Decimal:
+        return sum((item.quantidade or Decimal("0")) for item in obj.itens.all())
+
+    @staticmethod
+    def get_totais(obj) -> dict:
+        subtotal = sum((item.subtotal or Decimal("0")) for item in obj.itens.all())
+        total = obj.total or Decimal("0")
+        if total >= subtotal:
+            frete = total - subtotal
+            descontos = Decimal("0")
+        else:
+            frete = Decimal("0")
+            descontos = subtotal - total
+        return {
+            "subtotal": subtotal,
+            "descontos": descontos,
+            "frete": frete,
+            "total": total,
+        }
+
+    @staticmethod
+    def get_identificadores(obj) -> dict:
+        return {
+            "id": obj.pk,
+            "erp_id": obj.pk,
+            "uuid": None,
+        }
+
+    @staticmethod
+    def get_pagamento(obj) -> dict:
+        return {
+            "status": obj.pagamento_status,
+            "status_display": obj.get_pagamento_status_display(),
+            "forma": obj.forma_pagamento or "",
+            "plano_codigo": obj.plano_codigo or "",
+        }
+
+    @staticmethod
+    def get_frete(obj) -> dict:
+        totais = PedidoSerializer.get_totais(obj)
+        return {
+            "modalidade": obj.frete_modalidade,
+            "modalidade_display": obj.get_frete_modalidade_display(),
+            "valor": totais["frete"],
+            "loja_codigo": obj.loja_codigo,
+        }
+
+    @staticmethod
+    def get_status_info(obj) -> dict:
+        return {
+            "status": obj.status,
+            "status_display": obj.get_status_display(),
+        }
 
     def to_representation(self, instance):
         """
@@ -252,6 +297,16 @@ class PedidoSerializer(serializers.ModelSerializer):
                 "documento": _only_digits(cliente.document),
                 "email": cliente.email,
                 "telefone": cliente.phone,
+                "inscricao_estadual": cliente.state_registration,
+                "endereco": {
+                    "logradouro": cliente.address,
+                    "numero": cliente.number,
+                    "complemento": cliente.complement,
+                    "bairro": cliente.district,
+                    "cidade": cliente.city,
+                    "estado": cliente.state,
+                    "cep": cliente.zip_code,
+                },
             }
         data["itens"] = ItemPedidoSerializer(instance.itens.all(), many=True, context=self.context).data
         return data

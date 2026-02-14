@@ -1,20 +1,22 @@
-from decimal import Decimal
-from datetime import timedelta
+from decimal import Decimal, InvalidOperation
+from datetime import datetime, time, timedelta
 import unicodedata
+import json
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.db import transaction
 from django.db.models import Q, Prefetch
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, HttpResponseForbidden
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
 from django.utils import timezone
+from django.views.decorators.http import require_http_methods
 
 from fpdf import FPDF
 
 from .forms import QuoteForm, QuoteItemFormSet, OrderForm, OrderItemFormSet, SalespersonForm
-from .models import Quote, Order, OrderItem, Salesperson, Pedido, ItemPedido
+from .models import Quote, Order, OrderItem, Salesperson, Pedido, ItemPedido, PedidoAuditLog
 from products.models import Product
 from core.models import SalesConfiguration
 
@@ -33,6 +35,47 @@ UNICODE_LATIN_REPLACEMENTS = str.maketrans({
 	'\u201c': '"',
 	'\u201d': '"',
 })
+
+
+def _latin(text):
+	if text is None:
+		return ''
+	if not isinstance(text, str):
+		text = str(text)
+	text = text.translate(UNICODE_LATIN_REPLACEMENTS)
+	try:
+		return text.encode('latin-1', 'ignore').decode('latin-1')
+	except UnicodeEncodeError:
+		normalized = unicodedata.normalize('NFKD', text)
+		return normalized.encode('latin-1', 'ignore').decode('latin-1')
+
+
+def _format_decimal(value, places=2, allow_blank=False):
+	if value in (None, ''):
+		return '' if allow_blank else '0,00'
+	try:
+		number = Decimal(value)
+	except Exception:  # pragma: no cover - fallback conversion
+		number = Decimal('0')
+	format_str = f'{{0:.{places}f}}'.format(number)
+	return format_str.replace('.', ',')
+
+
+def _format_currency(value):
+	return f'R$ {_format_decimal(value, 2)}'
+
+
+def _format_date(value):
+	if not value:
+		return '-'
+	return value.strftime('%d/%m/%Y')
+
+
+def _truncate(text, max_length):
+	if not text:
+		return ''
+	text = str(text)
+	return text if len(text) <= max_length else text[: max_length - 3] + '...'
 
 
 def _build_quote_item_metrics(items):
@@ -108,20 +151,64 @@ def _build_quote_item_metrics(items):
 	return metrics, summary
 
 
+def _normalize_discount_limit(value):
+	if value in (None, ''):
+		return None
+	if isinstance(value, Decimal):
+		return value
+	try:
+		return Decimal(value)
+	except (InvalidOperation, TypeError, ValueError):
+		try:
+			return Decimal(str(value))
+		except (InvalidOperation, TypeError, ValueError):
+			return None
+
+
+def _merge_discount_limits(*limits):
+	valid_limits = [limit for limit in limits if limit is not None]
+	if not valid_limits:
+		return None
+	return min(valid_limits)
+
+
+def _default_discount_permissions():
+	return {'can_edit': True, 'max_percent': None}
+
+
 def _get_sales_permissions(user):
 	if not getattr(user, 'is_authenticated', False):
-		return {'manage': False, 'create': False, 'edit': False, 'delete': False}
+		return {
+			'manage': False,
+			'create': False,
+			'edit': False,
+			'delete': False,
+			'discount': _default_discount_permissions(),
+		}
 	if user.is_superuser or user.is_staff:
-		return {'manage': True, 'create': True, 'edit': True, 'delete': True}
+		return {
+			'manage': True,
+			'create': True,
+			'edit': True,
+			'delete': True,
+			'discount': _default_discount_permissions(),
+		}
 	profile = getattr(user, 'access_profile', None)
 	if not profile:
-		return {'manage': True, 'create': True, 'edit': True, 'delete': True}
+		return {
+			'manage': True,
+			'create': True,
+			'edit': True,
+			'delete': True,
+			'discount': _default_discount_permissions(),
+		}
 	perms = profile.sales_permissions()
 	return {
 		'manage': perms.get('manage', False),
 		'create': perms.get('create', False),
 		'edit': perms.get('edit', False),
 		'delete': perms.get('delete', False),
+		'discount': perms.get('discount', _default_discount_permissions()),
 	}
 
 
@@ -195,42 +282,6 @@ def quote_pdf(request, pk):
 	if quote.company and quote.company not in getattr(request, 'available_companies', []):
 		messages.error(request, 'Você não tem permissão para acessar este orçamento.')
 		return redirect('sales:quote_list')
-
-	def _latin(text):
-		if text is None:
-			return ''
-		if not isinstance(text, str):
-			text = str(text)
-		text = text.translate(UNICODE_LATIN_REPLACEMENTS)
-		try:
-			return text.encode('latin-1', 'ignore').decode('latin-1')
-		except UnicodeEncodeError:
-			normalized = unicodedata.normalize('NFKD', text)
-			return normalized.encode('latin-1', 'ignore').decode('latin-1')
-
-	def _format_decimal(value, places=2, allow_blank=False):
-		if value in (None, ''):
-			return '' if allow_blank else '0,00'
-		try:
-			number = Decimal(value)
-		except Exception:  # pragma: no cover - fallback conversion
-			number = Decimal('0')
-		format_str = f'{{0:.{places}f}}'.format(number)
-		return format_str.replace('.', ',')
-
-	def _format_currency(value):
-		return f'R$ {_format_decimal(value, 2)}'
-
-	def _format_date(value):
-		if not value:
-			return '-'
-		return value.strftime('%d/%m/%Y')
-
-	def _truncate(text, max_length):
-		if not text:
-			return ''
-		text = str(text)
-		return text if len(text) <= max_length else text[: max_length - 3] + '...'
 
 	pdf = FPDF()
 	pdf.set_auto_page_break(auto=True, margin=20)
@@ -474,6 +525,17 @@ def _quote_form_view(request, instance=None, perms=None):
 	quote = instance or Quote()
 	active_company = getattr(request, 'company', None)
 	perms = perms or _get_sales_permissions(request.user)
+	discount_perms = perms.get('discount') or _default_discount_permissions()
+	can_edit_discounts = bool(discount_perms.get('can_edit', True))
+	user_discount_limit = _normalize_discount_limit(discount_perms.get('max_percent'))
+	company_discount_limit = _normalize_discount_limit(getattr(active_company, 'max_discount_percent', None))
+	effective_discount_limit = _merge_discount_limits(user_discount_limit, company_discount_limit)
+	limit_display = f'{effective_discount_limit:.2f}' if effective_discount_limit is not None else ''
+	discount_config = {
+		'can_edit': can_edit_discounts,
+		'max_percent': effective_discount_limit,
+		'max_percent_value': limit_display,
+	}
 	if request.method != 'POST' and quote.pk:
 		quote.items.filter(product__isnull=True, description='').delete()
 	form = QuoteForm(instance=quote, user=request.user)
@@ -521,15 +583,35 @@ def _quote_form_view(request, instance=None, perms=None):
 				continue
 			if cleaned.get('DELETE'):
 				continue
+			submitted_discount = cleaned.get('discount') or Decimal('0')
+			existing_discount = item_form.instance.discount or Decimal('0')
+			if not can_edit_discounts and submitted_discount != existing_discount:
+				item_form.add_error('discount', 'Você não tem permissão para editar descontos.')
+				formset_valid = False
+				submitted_discount = existing_discount
 			product = cleaned.get('product')
 			if not product:
 				if item_form.instance.pk:
 					orphan_instances.append(item_form.instance)
+				item_form._discount_value = submitted_discount
 				continue
+			if can_edit_discounts and effective_discount_limit is not None:
+				quantity = cleaned.get('quantity') or Decimal('0')
+				unit_price = cleaned.get('unit_price') or Decimal('0')
+				line_gross = quantity * unit_price
+				if line_gross > Decimal('0'):
+					discount_percent = (submitted_discount / line_gross) * Decimal('100')
+					if discount_percent > effective_discount_limit:
+						item_form.add_error('discount', f'O desconto máximo permitido é de {limit_display}%.')
+						formset_valid = False
+			item_form._discount_value = submitted_discount
 			valid_item_forms.append(item_form)
 
 		for index, item_form in enumerate(valid_item_forms):
 			item = item_form.save(commit=False)
+			discount_override = getattr(item_form, '_discount_value', None)
+			if discount_override is not None:
+				item.discount = discount_override
 			if not item.description and item.product:
 				item.description = item.product.name
 			item.sort_order = index
@@ -577,6 +659,7 @@ def _quote_form_view(request, instance=None, perms=None):
 		'next_quote_number': next_quote_number,
 		'today': timezone.localdate(),
 		'sales_permissions': perms,
+		'discount_config': discount_config,
 		})
 
 
@@ -690,6 +773,41 @@ def order_list(request):
 	}
 	return render(request, 'sales/order_list.html', context)
 
+@login_required
+@transaction.atomic
+def order_cancel(request, pk):
+	order = get_object_or_404(Order, pk=pk)
+	perms, redirect_response = _ensure_can_manage_sales(request, 'edit', reverse('sales:order_list'))
+	if redirect_response:
+		return redirect_response
+	if request.method != 'POST':
+		return redirect('sales:order_detail', pk=pk)
+	if order.status != Order.Status.CANCELLED:
+		order.status = Order.Status.CANCELLED
+		order.save(update_fields=['status', 'updated_at'])
+		messages.success(request, f'Pedido {order.number} cancelado.')
+	else:
+		messages.info(request, f'O pedido {order.number} já está cancelado.')
+	return redirect('sales:order_list')
+
+
+@login_required
+@transaction.atomic
+def order_invoice(request, pk):
+	order = get_object_or_404(Order, pk=pk)
+	perms, redirect_response = _ensure_can_manage_sales(request, 'edit', reverse('sales:order_list'))
+	if redirect_response:
+		return redirect_response
+	if request.method != 'POST':
+		return redirect('sales:order_detail', pk=pk)
+	if order.status != Order.Status.INVOICED:
+		order.status = Order.Status.INVOICED
+		order.save(update_fields=['status', 'updated_at'])
+		messages.success(request, f'Pedido {order.number} marcado como faturado.')
+	else:
+		messages.info(request, f'O pedido {order.number} já está faturado.')
+	return redirect('sales:order_list')
+
 
 @login_required
 def order_detail(request, pk):
@@ -701,14 +819,45 @@ def order_detail(request, pk):
 		messages.error(request, 'Você não tem permissão para acessar este pedido.')
 		return redirect('sales:order_list')
 	perms = _get_sales_permissions(request.user)
-	return render(request, 'sales/order_detail.html', {'order': order, 'sales_permissions': perms})
+	context = {
+		'order': order,
+		'sales_permissions': perms,
+		'status_choices': Order.Status.choices,
+	}
+	return render(request, 'sales/order_detail.html', context)
+
+
+@login_required
+@transaction.atomic
+def order_set_status(request, pk):
+	order = get_object_or_404(
+		Order.objects.select_related('client', 'quote'),
+		pk=pk,
+	)
+	perms, redirect_response = _ensure_can_manage_sales(request, 'edit', reverse('sales:order_detail', args=[pk]))
+	if redirect_response:
+		return redirect_response
+	if request.method != 'POST':
+		return redirect('sales:order_detail', pk=pk)
+	status = (request.POST.get('status') or '').strip()
+	valid_statuses = {value for value, _ in Order.Status.choices}
+	if status not in valid_statuses:
+		messages.error(request, 'Status inválido.')
+		return redirect('sales:order_detail', pk=pk)
+	if order.status == status:
+		messages.info(request, f'O pedido {order.number} já está com o status selecionado.')
+		return redirect('sales:order_detail', pk=pk)
+	order.status = status
+	order.save(update_fields=['status', 'updated_at'])
+	messages.success(request, f'Status do pedido {order.number} atualizado para {order.get_status_display()}.')
+	return redirect('sales:order_detail', pk=pk)
 
 
 @login_required
 @transaction.atomic
 def order_create(request):
 	messages.error(request, 'Criação de pedidos desabilitada (somente leitura).')
-	return redirect('sales:order_list')
+	return HttpResponseForbidden('Criação de pedidos desabilitada (somente leitura).')
 
 
 @login_required
@@ -822,10 +971,84 @@ def seller_delete(request, pk):
 # -------------------------------
 # Pedidos recebidos pela API (FastAPI)
 # -------------------------------
+def _parse_filter_date(value):
+	try:
+		return datetime.strptime(value, '%Y-%m-%d').date()
+	except (TypeError, ValueError):
+		return None
+
+
+def _pedido_api_editavel(pedido: Pedido) -> bool:
+	return pedido.status not in {
+		Pedido.Status.FATURADO,
+		Pedido.Status.ENTREGUE,
+		Pedido.Status.CANCELADO,
+	}
+
+
+def _pedido_api_payload(pedido: Pedido) -> dict:
+	itens = []
+	for item in pedido.itens.all():
+		subtotal = item.subtotal if item.subtotal is not None else (item.quantidade or Decimal('0')) * (item.valor_unitario or Decimal('0'))
+		itens.append({
+			'id': item.pk,
+			'produto': getattr(item.produto, 'name', str(item.produto)),
+			'codigo': item.produto_codigo or getattr(item.produto, 'code', '') or '',
+			'quantidade': str(item.quantidade or Decimal('0')),
+			'valor_unitario': str(item.valor_unitario or Decimal('0')),
+			'subtotal': str(subtotal),
+		})
+	return {
+		'id': pedido.pk,
+		'status': pedido.status,
+		'pagamento_status': pedido.pagamento_status,
+		'forma_pagamento': pedido.forma_pagamento or '',
+		'plano_codigo': pedido.plano_codigo or '',
+		'frete_modalidade': pedido.frete_modalidade,
+		'total': str(pedido.total or Decimal('0')),
+		'editavel': _pedido_api_editavel(pedido),
+		'itens': itens,
+	}
+
+
+def _log_pedido_auditoria(*, pedido: Pedido, usuario: str, campo: str, anterior, novo, item: ItemPedido | None = None) -> None:
+	PedidoAuditLog.objects.create(
+		pedido=pedido,
+		item=item,
+		usuario=usuario,
+		campo=campo,
+		valor_anterior='' if anterior is None else str(anterior),
+		valor_novo='' if novo is None else str(novo),
+	)
+
+
+def _usuario_auditoria(request) -> str:
+	user = request.user
+	return user.get_username() if user.is_authenticated else 'erp'
+
+
+def _parse_json_request(request):
+	try:
+		return json.loads(request.body.decode('utf-8') or '{}')
+	except (json.JSONDecodeError, UnicodeDecodeError):
+		return None
+
+
 @login_required
 def api_order_list(request):
 	q = (request.GET.get('q') or '').strip()
-	orders = Pedido.objects.select_related('cliente').order_by('-data_recebimento')
+	today = timezone.localdate()
+	start_date = _parse_filter_date(request.GET.get('start_date')) or today
+	end_date = _parse_filter_date(request.GET.get('end_date')) or today
+	if end_date < start_date:
+		end_date = start_date
+	tz = timezone.get_current_timezone()
+	start_dt = timezone.make_aware(datetime.combine(start_date, time.min), tz)
+	end_dt = timezone.make_aware(datetime.combine(end_date, time.max), tz)
+	orders = Pedido.objects.select_related('cliente').filter(
+		data_recebimento__gte=start_dt,
+		data_recebimento__lte=end_dt,
+	).order_by('-data_recebimento')
 	if q:
 		orders = orders.filter(
 			Q(cliente__first_name__icontains=q) |
@@ -833,9 +1056,14 @@ def api_order_list(request):
 			Q(cliente__code__icontains=q) |
 			Q(id__icontains=q)
 		)
+	filters = {
+		'start_date': start_date.strftime('%Y-%m-%d'),
+		'end_date': end_date.strftime('%Y-%m-%d'),
+	}
 	return render(request, 'sales/api_order_list.html', {
 		'orders': orders,
 		'query': q,
+		'filters': filters,
 	})
 
 
@@ -851,13 +1079,182 @@ def api_order_detail(request, pk):
 	for item in order.itens.all():
 		qty = item.quantidade or Decimal('0')
 		unit = item.valor_unitario or Decimal('0')
+		subtotal = item.subtotal if item.subtotal is not None else qty * unit
 		items.append({
 			'instance': item,
-			'subtotal': qty * unit,
+			'subtotal': subtotal,
 		})
 	return render(request, 'sales/api_order_detail.html', {
 		'order': order,
 		'items': items,
+		'pedido_editavel': False,
 	})
+
+
+@login_required
+@transaction.atomic
+@require_http_methods(['PATCH'])
+def api_order_update(request, pk):
+	return JsonResponse(
+		{'detail': 'Edição via app desabilitada. Atualize o pedido diretamente no ERP.'},
+		status=405,
+	)
+
+
+@login_required
+@transaction.atomic
+@require_http_methods(['PATCH'])
+def api_order_item_update(request, pk, item_id):
+	return JsonResponse(
+		{'detail': 'Edição de itens via app desabilitada. Atualize os itens no ERP.'},
+		status=405,
+	)
+
+
+@login_required
+def api_order_pdf(request, pk):
+	order = get_object_or_404(
+		Pedido.objects.select_related('cliente').prefetch_related(
+			Prefetch('itens', queryset=ItemPedido.objects.select_related('produto'))
+		),
+		pk=pk,
+	)
+
+	pdf = FPDF()
+	pdf.set_auto_page_break(auto=True, margin=20)
+	pdf.add_page()
+
+	title = f'Pedido API #{order.pk}'
+	pdf.set_font('Helvetica', 'B', 16)
+	pdf.cell(0, 10, _latin(title), ln=True)
+
+	pdf.set_font('Helvetica', '', 10)
+	order_date = timezone.localtime(order.data_criacao).strftime('%d/%m/%Y %H:%M')
+	pdf.cell(0, 6, _latin(f'Data do pedido: {order_date}'), ln=True)
+	if order.data_recebimento:
+		received = timezone.localtime(order.data_recebimento).strftime('%d/%m/%Y %H:%M')
+		pdf.cell(0, 6, _latin(f'Recebido em: {received}'), ln=True)
+	pdf.cell(0, 6, _latin(f'Total: {_format_currency(order.total)}'), ln=True)
+
+	pdf.ln(3)
+	pdf.set_font('Helvetica', 'B', 11)
+	pdf.cell(0, 6, 'Informações', ln=True)
+	pdf.set_font('Helvetica', '', 10)
+	info_pairs = [
+		('Status', order.get_status_display()),
+		('Status do pagamento', order.get_pagamento_status_display()),
+		('Forma de pagamento', order.forma_pagamento or '—'),
+		('Frete', order.get_frete_modalidade_display()),
+		('Vendedor (código)', order.resolved_vendedor_codigo or '—'),
+		('Vendedor (nome)', order.vendedor_nome or '—'),
+		('Loja', order.loja_codigo or '—'),
+	]
+	for label, value in info_pairs:
+		pdf.cell(50, 6, _latin(f'{label}:'), border=0)
+		pdf.cell(0, 6, _latin(value or '—'), border=0, ln=1)
+
+	pdf.ln(3)
+	pdf.set_font('Helvetica', 'B', 11)
+	pdf.cell(0, 6, 'Cliente', ln=True)
+	pdf.set_font('Helvetica', '', 10)
+	client = order.cliente
+	client_name = f'{client.first_name} {client.last_name}'.strip() or str(client)
+	pdf.cell(0, 5, _latin(client_name), ln=True)
+	document = getattr(client, 'formatted_document', None) or getattr(client, 'document', None)
+	if document:
+		pdf.cell(0, 5, _latin(f'Documento: {document}'), ln=True)
+	client_address_parts = [
+		client.address,
+		client.number,
+		client.district,
+	]
+	client_address = ', '.join(part for part in client_address_parts if part)
+	if client_address:
+		pdf.cell(0, 5, _latin(client_address), ln=True)
+	city_state = ' - '.join(part for part in [client.city, client.state] if part)
+	if city_state or client.zip_code:
+		pdf.cell(0, 5, _latin(' - '.join(part for part in [city_state, client.zip_code] if part)), ln=True)
+	if client.phone or client.email:
+		pdf.cell(0, 5, _latin(' / '.join(part for part in [client.phone, client.email] if part)), ln=True)
+
+	pdf.ln(6)
+	pdf.set_font('Helvetica', 'B', 9)
+	columns = [
+		('produto', 'Produto', 60, 'L'),
+		('codigo', 'Código', 25, 'L'),
+		('quantidade', 'Quantidade', 25, 'R'),
+		('valor_unitario', 'Valor unitário', 40, 'R'),
+		('subtotal', 'Subtotal', 40, 'R'),
+	]
+	pdf.set_fill_color(240, 240, 240)
+	for _, header, width, align in columns:
+		pdf.cell(width, 6, _latin(header), border=1, align=align, fill=True)
+	pdf.ln(6)
+
+	items = list(order.itens.all())
+	pdf.set_font('Helvetica', '', 9)
+	base_row_height = 5
+	line_height = 3.8
+
+	if not items:
+		table_width = sum(column[2] for column in columns)
+		pdf.cell(table_width, base_row_height, 'Nenhum item informado.', border=1, align='C')
+		pdf.ln(base_row_height)
+	else:
+		for item in items:
+			product = item.produto
+			product_name = getattr(product, 'name', '') or str(product)
+			product_code = getattr(product, 'code', '') or ''
+			quantity = item.quantidade or Decimal('0')
+			unit_price = item.valor_unitario or Decimal('0')
+			subtotal = quantity * unit_price
+
+			row_cells = {
+				'produto': _truncate(product_name, 50),
+				'codigo': product_code,
+				'quantidade': _format_decimal(quantity, 2, allow_blank=True),
+				'valor_unitario': _format_currency(unit_price),
+				'subtotal': _format_currency(subtotal),
+			}
+
+			max_row_height = base_row_height
+			description_text = row_cells['produto']
+			if description_text:
+				lines = pdf.multi_cell(columns[0][2], line_height, _latin(description_text), border=0, align='L', split_only=True)
+				height = max(len(lines), 1) * line_height
+				max_row_height = max(max_row_height, height)
+
+			start_x = pdf.get_x()
+			start_y = pdf.get_y()
+
+			for key, _, width, align in columns:
+				text = row_cells.get(key, '')
+				if key == 'produto':
+					current_y = pdf.get_y()
+					current_x = pdf.get_x()
+					pdf.multi_cell(width, line_height, _latin(text), border=0, align=align)
+					pdf.rect(current_x, current_y, width, max_row_height)
+					pdf.set_xy(current_x + width, current_y)
+				else:
+					pdf.cell(width, max_row_height, _latin(text), border=1, align=align)
+
+			pdf.set_xy(start_x, start_y + max_row_height)
+
+	pdf.ln(6)
+	pdf.set_font('Helvetica', 'B', 11)
+	pdf.cell(0, 6, 'Resumo', ln=True)
+	pdf.set_font('Helvetica', '', 10)
+	pdf.cell(40, 6, 'Total:', border=0)
+	pdf.cell(0, 6, _latin(_format_currency(order.total)), border=0, ln=1, align='R')
+
+	response = HttpResponse(content_type='application/pdf')
+	filename = f'pedido-{order.pk}.pdf'.replace(' ', '_')
+	response['Content-Disposition'] = f'inline; filename="{filename}"'
+	output = pdf.output(dest='S')
+	if isinstance(output, str):
+		response.write(output.encode('latin-1'))
+	else:
+		response.write(bytes(output))
+	return response
 
 # Create your views here.

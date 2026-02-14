@@ -1,10 +1,15 @@
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Header
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import http_exception_handler, request_validation_exception_handler
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, field_validator
-from typing import List, Optional
+from typing import Any, List, Optional, Tuple
+import asyncio
+import time
 import asyncpg
 import os
 import base64
@@ -13,20 +18,22 @@ import secrets
 import hmac
 import jwt
 import django
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from datetime import datetime, timedelta, timezone as dt_timezone
 from django.utils import timezone as dj_timezone
+from django.core.exceptions import FieldError
 from erp_api.clientes import router as clientes_router
 import logging
 from pathlib import Path
+from erp_api.tenant import determine_request_loja_codigo
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "mysite.settings")
 django.setup()
 
 from clients.models import Client, ClienteSync
 from products.models import Product, ProdutoSync
-from api.models import PlanoPagamentoCliente, Loja
-from sales.models import Pedido, ItemPedido
+from api.models import Loja
+from sales.models import Pedido, ItemPedido, PedidoAuditLog
 from django.db import transaction, models
 from django.core.files.uploadedfile import SimpleUploadedFile
 from core.forms import SefazConfigurationForm
@@ -63,6 +70,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        response = await http_exception_handler(request, exc)
+    elif isinstance(exc, RequestValidationError):
+        response = await request_validation_exception_handler(request, exc)
+    else:
+        logger.exception("Erro não tratado durante a requisição", exc_info=exc)
+        response = JSONResponse(
+            status_code=500,
+            content={"detail": "Internal Server Error"},
+        )
+    response.headers.setdefault("Access-Control-Allow-Origin", "*")
+    response.headers.setdefault("Access-Control-Allow-Methods", "*")
+    response.headers.setdefault("Access-Control-Allow-Headers", "*")
+    return response
+
 # -----------------------------------
 # Conexões com PostgreSQL (dados vs. autenticação)
 # -----------------------------------
@@ -83,8 +108,11 @@ AUTH_DB_CONFIG = {
 POOL_MIN_SIZE = int(os.getenv("DB_POOL_MIN", "1"))
 POOL_MAX_SIZE = int(os.getenv("DB_POOL_MAX", "10"))
 POOL_COMMAND_TIMEOUT = float(os.getenv("DB_COMMAND_TIMEOUT", "10"))
+POSTGRES_WAIT_TIMEOUT = float(os.getenv("POSTGRES_WAIT_TIMEOUT", "30"))
 DISABLE_API_AUTH = os.getenv("DISABLE_API_AUTH", "true").lower() in ("1", "true", "yes", "on")
 JWT_SECRET = os.getenv("JWT_SECRET", "change-me")
+APP_INTEGRATION_TOKEN = os.getenv("APP_INTEGRATION_TOKEN") or ""
+INTERNAL_SYNC_TOKEN = os.getenv("INTERNAL_SYNC_TOKEN") or APP_INTEGRATION_TOKEN
 JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 JWT_EXPIRES_MINUTES = int(os.getenv("JWT_EXPIRES_MINUTES", "60"))
 DEFAULT_ADMIN_USER = os.getenv("DEFAULT_ADMIN_USER")
@@ -99,6 +127,7 @@ PEDIDO_STATUS_VALUES = {
 }
 PAGAMENTO_STATUS_VALUES = {"aguardando", "pago_avista", "fatura_a_vencer", "negado"}
 FRETE_MODALIDADE_VALUES = {"cif", "fob", "sem_frete"}
+DEFAULT_LOJA_CODIGO = os.getenv("DEFAULT_LOJA_CODIGO", "00001")
 
 
 @app.on_event("startup")
@@ -109,12 +138,17 @@ async def startup():
         command_timeout=POOL_COMMAND_TIMEOUT,
         **DATA_DB_CONFIG,
     )
+    await _wait_for_database(app.state.data_pool, POSTGRES_WAIT_TIMEOUT)
     app.state.auth_pool = await asyncpg.create_pool(
         min_size=1,
         max_size=max(POOL_MAX_SIZE // 2, 2),
         command_timeout=POOL_COMMAND_TIMEOUT,
         **AUTH_DB_CONFIG,
     )
+    await _ensure_loja_codigo_default("sales_pedido")
+    await _ensure_loja_codigo_default("sales_itempedido")
+    await _ensure_loja_codigo_default("erp_clientes_vendedores")
+    await _ensure_clientes_vendedores_constraint()
     async with app.state.auth_pool.acquire() as conn:
         await _ensure_auth_tables(conn)
         await _bootstrap_admin_user(conn)
@@ -135,11 +169,33 @@ def _get_data_pool():
     return pool
 
 
+async def _wait_for_database(pool: asyncpg.pool.Pool, timeout: float) -> None:
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            async with pool.acquire() as conn:
+                await conn.fetchval("SELECT 1")
+            logger.info("Conexão com o PostgreSQL verificada com sucesso.")
+            return
+        except Exception as exc:
+            if time.monotonic() > deadline:
+                logger.exception("Não foi possível conectar ao PostgreSQL dentro de %.1f segundos", timeout)
+                raise HTTPException(503, "PostgreSQL indisponível") from exc
+            await asyncio.sleep(1)
+
+
 def _get_auth_pool():
     pool = getattr(app.state, "auth_pool", None)
     if not pool:
         raise HTTPException(503, "Pool de autenticação não inicializado")
     return pool
+
+
+def _order_produto_sync(queryset):
+    try:
+        return queryset.order_by("-updated_at")
+    except FieldError:
+        return queryset.order_by("-codigo")
 
 
 def _serialize_sefaz_config(config: SefazConfiguration) -> dict:
@@ -156,20 +212,6 @@ def _serialize_sefaz_config(config: SefazConfiguration) -> dict:
             "valid_until": config.certificate_valid_until.isoformat() if config.certificate_valid_until else None,
             "uploaded_at": config.certificate_uploaded_at.isoformat() if config.certificate_uploaded_at else None,
         },
-    }
-
-
-def _plan_to_dict(plan: PlanoPagamentoCliente) -> dict:
-    return {
-        "CLICOD": plan.cliente_codigo,
-        "PLACOD": plan.plano_codigo,
-        "PLADES": plan.descricao or "",
-        "PLAENT": plan.entrada_percentual,
-        "PLAINTPRI": plan.intervalo_primeira_parcela,
-        "PLAINTPAR": plan.intervalo_parcelas,
-        "PLANUMPAR": plan.quantidade_parcelas,
-        "PLAVLRMIN": plan.valor_minimo,
-        "PLAVLRACR": plan.valor_acrescimo,
     }
 
 
@@ -228,6 +270,65 @@ async def _ensure_auth_tables(conn: asyncpg.Connection) -> None:
         END$$;
         """
     )
+
+
+async def _ensure_loja_codigo_default(table_name: str) -> None:
+    pool = _get_data_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """
+            SELECT column_default
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = $1
+              AND column_name = 'loja_codigo';
+            """,
+            table_name,
+        )
+        if not row:
+            return
+        default = row["column_default"]
+        if default and "000001" in str(default):
+            return
+        try:
+            await conn.execute(
+                f"""
+                ALTER TABLE {table_name}
+                ALTER COLUMN loja_codigo SET DEFAULT '000001';
+                UPDATE {table_name}
+                SET loja_codigo = '000001'
+                WHERE loja_codigo IS NULL;
+                """
+            )
+            logger.info("Definido DEFAULT '000001' para %s.loja_codigo", table_name)
+        except Exception as exc:
+            logger.warning("Não foi possível ajustar o default de %s.loja_codigo: %s", table_name, exc)
+
+
+async def _ensure_clientes_vendedores_constraint() -> None:
+    pool = _get_data_pool()
+    async with pool.acquire() as conn:
+        exists = await conn.fetchval(
+            """
+            SELECT 1
+            FROM pg_constraint
+            WHERE conname = 'erp_clientes_vendedores_cliente_codigo_key';
+            """
+        )
+        if exists:
+            return
+        try:
+            await conn.execute(
+                """
+                ALTER TABLE erp_clientes_vendedores
+                ADD CONSTRAINT erp_clientes_vendedores_cliente_codigo_key UNIQUE (cliente_codigo);
+                """
+            )
+            logger.info("Criada constraint UNIQUE em erp_clientes_vendedores(cliente_codigo)")
+        except Exception as exc:
+            logger.warning(
+                "Não foi possível criar constraint unique para erp_clientes_vendedores: %s", exc
+            )
 
 
 async def _bootstrap_admin_user(conn: asyncpg.Connection) -> None:
@@ -417,6 +518,7 @@ class PedidoIn(BaseModel):
     frete_modalidade: Optional[str] = None
     vendedor_codigo: Optional[str] = None
     vendedor_nome: Optional[str] = None
+    plano_codigo: Optional[str] = None
 
     @field_validator("itens")
     def must_have_items(cls, v):
@@ -442,21 +544,19 @@ class PedidoIn(BaseModel):
             raise ValueError(f"Modalidade de frete inválida. Opções: {sorted(FRETE_MODALIDADE_VALUES)}")
         return v
 
+    @field_validator("forma_pagamento")
+    def normalize_forma_pagamento(cls, v):
+        if v is None:
+            return None
+        normalized = v.strip()
+        return normalized or None
 
-class PlanoPagamentoClienteIn(BaseModel):
-    CLICOD: str
-    PLACOD: str
-    PLADES: Optional[str] = None
-    PLAENT: Optional[Decimal] = None
-    PLAINTPRI: Optional[int] = None
-    PLAINTPAR: Optional[int] = None
-    PLANUMPAR: Optional[int] = None
-    PLAVLRMIN: Optional[Decimal] = None
-    PLAVLRACR: Optional[Decimal] = None
-
-
-class PlanoPagamentoClienteOut(PlanoPagamentoClienteIn):
-    pass
+    @field_validator("plano_codigo")
+    def normalize_plano_codigo(cls, v):
+        if v is None:
+            return None
+        normalized = v.strip()
+        return normalized or None
 
 
 class SefazConfigIn(BaseModel):
@@ -489,20 +589,142 @@ class LojaIn(BaseModel):
     AGEEST: Optional[str] = None
 
 
-async def require_jwt(credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme)) -> dict:
+class PedidoStatusUpdate(BaseModel):
+    status: str
+
+    @field_validator("status")
+    def validate_status(cls, v):
+        if v not in PEDIDO_STATUS_VALUES:
+            raise ValueError(f"Status inválido. Opções: {sorted(PEDIDO_STATUS_VALUES)}")
+        return v
+
+
+class EnumItem(BaseModel):
+    value: str
+    label: str
+
+
+class MetaEnumsResponse(BaseModel):
+    pedido_status: List[EnumItem]
+    pagamento_status: List[EnumItem]
+    frete_modalidade: List[EnumItem]
+
+
+class PedidoSyncUpdateRequest(BaseModel):
+    pedido_id: int
+
+
+def _text_choice_values(choices: type[models.TextChoices]) -> set[str]:
+    return {choice.value for choice in choices}
+
+
+class PedidoPatchPayload(BaseModel):
+    status: Optional[str] = None
+    pagamento_status: Optional[str] = None
+    forma_pagamento: Optional[str] = None
+    plano_codigo: Optional[str] = None
+
+    @field_validator("status")
+    def validate_status(cls, v):
+        valid = _text_choice_values(Pedido.Status)
+        if v and v not in valid:
+            raise ValueError(f"Status inválido. Opções: {sorted(valid)}")
+        return v
+
+    @field_validator("pagamento_status")
+    def validate_pagamento_status(cls, v):
+        valid = _text_choice_values(Pedido.PaymentStatus)
+        if v and v not in valid:
+            raise ValueError(f"Status de pagamento inválido. Opções: {sorted(valid)}")
+        return v
+
+    @field_validator("forma_pagamento")
+    def normalize_forma(cls, v):
+        if v is None:
+            return None
+        normalized = v.strip()
+        return normalized or None
+
+    @field_validator("plano_codigo")
+    def normalize_plano(cls, v):
+        if v is None:
+            return None
+        normalized = v.strip()
+        return normalized or None
+
+
+class PedidoItemPatchPayload(BaseModel):
+    quantidade: Optional[Decimal] = None
+    valor_unitario: Optional[Decimal] = None
+
+    @field_validator("quantidade", "valor_unitario")
+    def positive(cls, v):
+        if v is None:
+            return None
+        if v <= 0:
+            raise ValueError("Valor deve ser maior que zero")
+        return v
+
+
+def _serialize_text_choices(choices: type[models.TextChoices]) -> List[EnumItem]:
+    return [
+        EnumItem(value=choice.value, label=choice.label or choice.value)
+        for choice in choices
+    ]
+
+
+def _validate_app_token(token: str | None) -> bool:
+    return bool(APP_INTEGRATION_TOKEN and token and token.strip() == APP_INTEGRATION_TOKEN)
+
+
+def _describe_request_context(request: Request) -> str:
+    path = request.url.path
+    if request.url.query:
+        path = f"{path}?{request.url.query}"
+    components = [f"{request.method} {path}"]
+    if request.client:
+        addr = request.client.host
+        if request.client.port:
+            addr = f"{addr}:{request.client.port}"
+        components.append(f"client={addr}")
+    if forwarded := request.headers.get("x-forwarded-for"):
+        components.append(f"xff={forwarded}")
+    if user_agent := request.headers.get("user-agent"):
+        components.append(f"ua={user_agent}")
+    return " ".join(components)
+
+
+async def require_jwt(
+    request: Request,
+    credentials: HTTPAuthorizationCredentials = Depends(bearer_scheme),
+    x_app_token: str | None = Header(None, alias="X-App-Token"),
+) -> dict:
     if DISABLE_API_AUTH:
         return {"id": 0, "username": "auth_disabled"}
+    if _validate_app_token(x_app_token):
+        return {"id": None, "username": "app_token"}
     if not credentials or credentials.scheme.lower() != "bearer":
-        logger.warning("Auth failed: missing/invalid bearer header")
+        logger.warning(
+            "Auth failed: missing/invalid bearer header (%s)",
+            _describe_request_context(request),
+        )
         raise HTTPException(401, "Token ausente ou inválido", headers={"WWW-Authenticate": "Bearer"})
     raw_token = credentials.credentials
+    if APP_INTEGRATION_TOKEN and raw_token and raw_token.strip() == APP_INTEGRATION_TOKEN:
+        return {"id": None, "username": "app_token"}
     try:
         payload = jwt.decode(raw_token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
-        logger.warning("Auth failed: expired token")
+        logger.warning(
+            "Auth failed: expired token (%s)",
+            _describe_request_context(request),
+        )
         raise HTTPException(401, "Token expirado", headers={"WWW-Authenticate": "Bearer"})
     except jwt.InvalidTokenError:
-        logger.warning("Auth failed: invalid token")
+        logger.warning(
+            "Auth failed: invalid token (%s)",
+            _describe_request_context(request),
+        )
         raise HTTPException(403, "Token inválido")
 
     user_id = payload.get("sub")
@@ -527,6 +749,23 @@ async def require_jwt(credentials: HTTPAuthorizationCredentials = Depends(bearer
     }
 
 
+async def require_internal_sync(
+    request: Request,
+    x_internal_token: str | None = Header(None, alias="X-Internal-Token"),
+) -> dict:
+    if DISABLE_API_AUTH:
+        return {"id": 0, "username": "auth_disabled"}
+    expected = (INTERNAL_SYNC_TOKEN or "").strip()
+    if not expected:
+        logger.error("INTERNAL_SYNC_TOKEN não configurado para endpoint interno (%s)", _describe_request_context(request))
+        raise HTTPException(503, "Sincronização interna indisponível.")
+    provided = (x_internal_token or "").strip()
+    if not provided or not hmac.compare_digest(provided, expected):
+        logger.warning("Token interno inválido (%s)", _describe_request_context(request))
+        raise HTTPException(403, "Token interno inválido.")
+    return {"id": None, "username": "internal_sync"}
+
+
 async def require_admin(token: dict = Depends(require_jwt)) -> dict:
     if DISABLE_API_AUTH:
         return token
@@ -536,6 +775,53 @@ async def require_admin(token: dict = Depends(require_jwt)) -> dict:
     if (token.get("username") or "").lower() != admin_user.lower():
         raise HTTPException(403, "Sem permissão")
     return token
+
+
+def _resolve_audit_user(token: dict) -> str:
+    return (
+        token.get("username")
+        or token.get("token_username")
+        or token.get("vendor_code")
+        or "api"
+    )
+
+
+def _log_pedido_change(
+    pedido: Pedido,
+    usuario: str,
+    campo: str,
+    valor_anterior: Any,
+    valor_novo: Any,
+    item: Optional[ItemPedido] = None,
+) -> None:
+    PedidoAuditLog.objects.create(
+        pedido=pedido,
+        item=item,
+        usuario=usuario,
+        campo=campo,
+        valor_anterior=str(valor_anterior) if valor_anterior is not None else None,
+        valor_novo=str(valor_novo) if valor_novo is not None else None,
+    )
+
+
+def _ensure_order_editable(pedido: Pedido) -> None:
+    if not pedido.editavel:
+        raise HTTPException(400, "Pedido não está marcado como editável.")
+    if pedido.status != Pedido.Status.ORCAMENTO:
+        raise HTTPException(400, "Edição disponível apenas para pedidos em orçamento.")
+    if pedido.status in {Pedido.Status.FATURADO, Pedido.Status.ENTREGUE}:
+        raise HTTPException(400, "Pedidos faturados não podem ser editados.")
+
+
+def _mark_revision(pedido: Pedido, usuario: str, update_fields: list[str]) -> None:
+    now = dj_timezone.now()
+    pedido.revisado_por = usuario
+    pedido.revisado_em = now
+    for field in ("revisado_por", "revisado_em"):
+        if field not in update_fields:
+            update_fields.append(field)
+
+
 # -----------------------------------
 # LISTAR PRODUTOS (tabela já existente)
 # -----------------------------------
@@ -824,83 +1110,6 @@ async def buscar_cliente(q: str, token: dict = Depends(require_jwt)):
 
 
 # -----------------------------------
-# PLANOS DE PAGAMENTO (Postgres)
-# -----------------------------------
-def _sync_planos_pagamento_clientes(payload: List[PlanoPagamentoClienteIn]) -> int:
-    now = dj_timezone.now()
-    plans = [
-        PlanoPagamentoCliente(
-            cliente_codigo=item.CLICOD,
-            plano_codigo=item.PLACOD,
-            descricao=item.PLADES or "",
-            entrada_percentual=item.PLAENT,
-            intervalo_primeira_parcela=item.PLAINTPRI,
-            intervalo_parcelas=item.PLAINTPAR,
-            quantidade_parcelas=item.PLANUMPAR,
-            valor_minimo=item.PLAVLRMIN,
-            valor_acrescimo=item.PLAVLRACR,
-            updated_at=now,
-        )
-        for item in payload
-    ]
-    if not plans:
-        return 0
-    PlanoPagamentoCliente.objects.bulk_create(
-        plans,
-        update_conflicts=True,
-        unique_fields=["cliente_codigo", "plano_codigo"],
-        update_fields=[
-            "descricao",
-            "entrada_percentual",
-            "intervalo_primeira_parcela",
-            "intervalo_parcelas",
-            "quantidade_parcelas",
-            "valor_minimo",
-            "valor_acrescimo",
-            "updated_at",
-        ],
-    )
-    return len(plans)
-
-
-@app.get("/api/planos-pagamento-cliente", tags=["planos_pagamento"])
-async def listar_planos_pagamento_cliente(
-    cliente_codigo: str = Query(...),
-    token: dict = Depends(require_jwt),
-):
-    plans = await run_in_threadpool(
-        lambda: list(
-            PlanoPagamentoCliente.objects.filter(cliente_codigo=cliente_codigo).order_by("plano_codigo")
-        )
-    )
-    data = [_plan_to_dict(plan) for plan in plans]
-    return {"cliente_codigo": cliente_codigo, "total": len(data), "data": data}
-
-
-@app.get("/api/planos-pagamento-cliente/{cliente_codigo}", tags=["planos_pagamento"])
-async def listar_planos_pagamento_cliente_path(
-    cliente_codigo: str,
-    token: dict = Depends(require_jwt),
-):
-    plans = await run_in_threadpool(
-        lambda: list(
-            PlanoPagamentoCliente.objects.filter(cliente_codigo=cliente_codigo).order_by("plano_codigo")
-        )
-    )
-    data = [_plan_to_dict(plan) for plan in plans]
-    return {"cliente_codigo": cliente_codigo, "total": len(data), "data": data}
-
-
-@app.post("/api/planos-pagamento-clientes/sync", tags=["planos_pagamento"])
-async def sync_planos_pagamento_clientes(
-    payload: List[PlanoPagamentoClienteIn],
-    token: dict = Depends(require_jwt),
-):
-    total = await run_in_threadpool(_sync_planos_pagamento_clientes, payload)
-    return {"status": "ok", "total": total}
-
-
-# -----------------------------------
 # LOJAS (Postgres)
 # -----------------------------------
 def _sync_lojas(payload: List[LojaIn]) -> int:
@@ -996,6 +1205,228 @@ async def sync_lojas(
 ):
     total = await run_in_threadpool(_sync_lojas, payload)
     return {"status": "ok", "total": total}
+
+
+CATALOGO_PLANOS_SQL = """
+SELECT
+    plano_codigo,
+    plano_descricao,
+    entrada_percentual,
+    intervalo_primeira_parcela,
+    intervalo_parcelas,
+    quantidade_parcelas,
+    valor_acrescimo,
+    valor_minimo
+FROM public.vw_catalogo_plano_pagamento
+ORDER BY plano_codigo
+"""
+
+
+@app.get("/api/catalogo/plano-pagamento", tags=["catalogo"])
+async def listar_catalogo_planos_pagamento(token: dict = Depends(require_jwt)):
+    pool = _get_data_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(CATALOGO_PLANOS_SQL)
+    return {"total": len(rows), "data": [dict(r) for r in rows]}
+
+
+PLANOS_LOJA_SQL = """
+SELECT
+    plano_codigo,
+    plano_descricao,
+    NULL::numeric AS entrada_percentual,
+    dias_primeira_parcela AS intervalo_primeira_parcela,
+    dias_entre_parcelas AS intervalo_parcelas,
+    parcelas AS quantidade_parcelas,
+    valor_acrescimo,
+    valor_minimo
+FROM public.plano_pagamento
+WHERE ativo = true
+  AND NULLIF(TRIM(loja_codigo), '') = $1
+ORDER BY plano_codigo
+"""
+
+PLANOS_GLOBAL_SQL = """
+SELECT
+    plano_codigo,
+    plano_descricao,
+    NULL::numeric AS entrada_percentual,
+    dias_primeira_parcela AS intervalo_primeira_parcela,
+    dias_entre_parcelas AS intervalo_parcelas,
+    parcelas AS quantidade_parcelas,
+    valor_acrescimo,
+    valor_minimo
+FROM public.plano_pagamento
+WHERE ativo = true
+ORDER BY plano_codigo
+"""
+
+PLANOS_CLIENTE_SQL = """
+SELECT *
+FROM public.plano_pagamentos_clientes
+WHERE cliente_codigo = $1
+ORDER BY plano_codigo
+"""
+
+
+def _parse_pedido_total(value: Optional[str]) -> Decimal:
+    if not value:
+        return Decimal("0")
+    try:
+        amount = Decimal(value)
+    except (InvalidOperation, TypeError, ValueError):
+        raise ValueError("Total do pedido inválido")
+    if amount < 0:
+        raise ValueError("Total do pedido deve ser positivo")
+    return amount
+
+
+def _annotate_plan_availability(plan: dict[str, Any], min_total: Decimal) -> dict[str, Any]:
+    valor_minimo = plan.get("valor_minimo")
+    if valor_minimo is None:
+        plan["disponivel"] = True
+        return plan
+    try:
+        minimo = Decimal(valor_minimo)
+    except (InvalidOperation, TypeError, ValueError):
+        minimo = Decimal("0")
+    plan["disponivel"] = min_total >= minimo
+    return plan
+
+
+def _apply_plan_availability(plans: list[dict[str, Any]], min_total: Decimal) -> list[dict[str, Any]]:
+    return [_annotate_plan_availability(plan, min_total) for plan in plans]
+
+
+def _choose_plan_rows(client_rows: list[dict[str, Any]], loja_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return client_rows if client_rows else loja_rows
+
+
+async def _fetch_planos_loja(conn: asyncpg.Connection, loja_codigo: str | None) -> list[dict[str, Any]]:
+    codigo = (loja_codigo or "").strip()
+    if codigo:
+        rows = await conn.fetch(PLANOS_LOJA_SQL, codigo)
+        if rows:
+            return [dict(row) for row in rows]
+    rows = await conn.fetch(PLANOS_GLOBAL_SQL)
+    return [dict(row) for row in rows]
+
+
+async def _fetch_planos_cliente(conn: asyncpg.Connection, cliente_codigo: str) -> list[dict[str, Any]]:
+    codigo = (cliente_codigo or "").strip()
+    if not codigo:
+        return []
+    rows = await conn.fetch(PLANOS_CLIENTE_SQL, codigo)
+    return [dict(row) for row in rows]
+
+
+@app.get("/api/planos-pagamento", tags=["planos_pagamento"])
+async def listar_planos_pagamento_loja(
+    request: Request,
+    pedido_total: Optional[str] = Query(
+        None,
+        alias="pedido_total",
+        description="Total do pedido em Reais para respeitar o valor mínimo dos planos",
+    ),
+    token: dict = Depends(require_jwt),
+):
+    loja_codigo = determine_request_loja_codigo(request, DEFAULT_LOJA_CODIGO)
+    try:
+        min_total = _parse_pedido_total(pedido_total)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    pool = _get_data_pool()
+    async with pool.acquire() as conn:
+        rows = await _fetch_planos_loja(conn, loja_codigo)
+    data = _apply_plan_availability(rows, min_total)
+    return {"total": len(data), "data": data}
+
+
+@app.get("/api/planos-pagamento-cliente/{cliente_codigo}", tags=["planos_pagamento"])
+async def listar_planos_pagamento_cliente(
+    request: Request,
+    cliente_codigo: str,
+    token: dict = Depends(require_jwt),
+    pedido_total: Optional[str] = Query(
+        None,
+        alias="pedido_total",
+        description="Total do pedido em Reais para respeitar o valor mínimo dos planos",
+    ),
+):
+    loja_codigo = determine_request_loja_codigo(request, DEFAULT_LOJA_CODIGO)
+    try:
+        min_total = _parse_pedido_total(pedido_total)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    pool = _get_data_pool()
+    async with pool.acquire() as conn:
+        client_rows = await _fetch_planos_cliente(conn, cliente_codigo)
+        loja_rows = await _fetch_planos_loja(conn, loja_codigo)
+        rows = _choose_plan_rows(client_rows, loja_rows)
+    data = _apply_plan_availability(rows, min_total)
+    return {"total": len(data), "data": data}
+
+
+INADIMPLENCIA_FIELDS = [
+    ("COD_LOJA", "cod_loja"),
+    ("COD_VENDEDOR", "cod_vendedor"),
+    ("NUM_TITULO", "num_titulo"),
+    ("COD_CLIENTE", "cod_cliente"),
+    ("RAZAO_SOCIAL", "razao_social"),
+    ("NOME_FANTASIA", "nome_fantasia"),
+    ("CPF_CNPJ", "cpf_cnpj"),
+    ("TIPO_DOC", "tipo_doc"),
+    ("DOCUMENTO_TIPO", "documento_tipo"),
+    ("CIDADE", "cidade"),
+    ("VENCIMENTO", "vencimento"),
+    ("VENCIMENTO_REAL", "vencimento_real"),
+    ("VALOR_DEVEDOR", "valor_devedor"),
+]
+
+
+def _normalize_code_param(value: str | None) -> str:
+    if not value:
+        return "0"
+    normalized = value.strip()
+    normalized = normalized.lstrip("0")
+    return normalized or "0"
+
+
+@app.get("/api/inadimplencia", tags=["inadimplencia"])
+async def listar_inadimplencia(
+    request: Request,
+    loja_codigo: str | None = Query(None, alias="loja_codigo"),
+    vendedor_codigo: str | None = Query(None, alias="vendedor_codigo"),
+    limit: int = Query(100, ge=1, le=1000),
+    token: dict = Depends(require_jwt),
+):
+    resolved_loja = loja_codigo or determine_request_loja_codigo(request, DEFAULT_LOJA_CODIGO)
+    resolved_vendedor = vendedor_codigo or token.get("vendor_code")
+    column_list = ",\n            ".join(name for _, name in INADIMPLENCIA_FIELDS)
+    sql = f"""
+        SELECT
+            {column_list}
+        FROM public.vw_inadimplencia
+        WHERE COALESCE(NULLIF(TRIM(LEADING '0' FROM cod_loja), ''), '0') = $1
+          AND COALESCE(NULLIF(TRIM(LEADING '0' FROM cod_vendedor), ''), '0') = $2
+        ORDER BY vencimento ASC
+        LIMIT $3
+    """
+
+    pool = _get_data_pool()
+    async with pool.acquire() as conn:
+        loja_param = _normalize_code_param(resolved_loja)
+        vendedor_param = _normalize_code_param(resolved_vendedor)
+        try:
+            rows = await conn.fetch(sql, loja_param, vendedor_param, limit)
+        except Exception as exc:
+            logger.exception("Erro ao consultar inadimplência")
+            raise HTTPException(500, detail=str(exc))
+    data = [
+        {upper: row[lower] for upper, lower in INADIMPLENCIA_FIELDS}
+        for row in rows
+    ]
+    return {"total": len(data), "data": data}
 
 
 # -----------------------------------
@@ -1271,7 +1702,7 @@ def _resolve_produto(codigo_produto: str) -> Product:
         produto = Product.objects.filter(plu_code__in=plu_candidates).first()
         if not produto:
             # ProdutoSync não possui campo de timestamp; usamos um fallback determinístico
-            psync = ProdutoSync.objects.filter(plu__in=plu_candidates).order_by("-codigo").first()
+            psync = _order_produto_sync(ProdutoSync.objects.filter(plu__in=plu_candidates)).first()
             if psync and psync.codigo:
                 code_from_sync = str(psync.codigo).strip()
                 norm_code = Product.normalize_code(code_from_sync)
@@ -1297,7 +1728,7 @@ def _resolve_produto(codigo_produto: str) -> Product:
             code_candidates.add(stripped)
 
         # ProdutoSync não possui campo de timestamp; usamos um fallback determinístico
-        psync = ProdutoSync.objects.filter(codigo__in=[c for c in code_candidates if c]).order_by("-codigo").first()
+        psync = _order_produto_sync(ProdutoSync.objects.filter(codigo__in=[c for c in code_candidates if c])).first()
         if psync:
             # Se a sync tem PLU, reaproveita a lógica acima
             plu_from_sync = str(psync.plu).strip() if psync.plu else None
@@ -1333,7 +1764,11 @@ def _resolve_produto(codigo_produto: str) -> Product:
     return produto
 
 
-def _create_pedido_sync(payload: PedidoIn, token_vendor_code: Optional[str] = None):
+def _create_pedido_sync(
+    payload: PedidoIn,
+    token_vendor_code: Optional[str] = None,
+    loja_codigo: str = DEFAULT_LOJA_CODIGO,
+):
     try:
         itens_payload = payload.itens
         if not itens_payload:
@@ -1356,18 +1791,12 @@ def _create_pedido_sync(payload: PedidoIn, token_vendor_code: Optional[str] = No
                 f"Total inconsistente: recebido {payload.total}, calculado {total_calculado}",
             )
 
-        pagamento_status = (payload.pagamento_status or Pedido.PaymentStatus.AGUARDANDO).strip()
-        if not pagamento_status:
-            pagamento_status = Pedido.PaymentStatus.AGUARDANDO
-        frete_modalidade = (payload.frete_modalidade or Pedido.FreightMode.SEM_FRETE).strip() or Pedido.FreightMode.SEM_FRETE
-        forma_pagamento = (payload.forma_pagamento or "").strip()
-        status_val = payload.status.strip() if payload.status else None
-        if not status_val:
-            status_val = (
-                Pedido.Status.EM_SEPARACAO
-                if pagamento_status in (Pedido.PaymentStatus.PAGO_AVISTA, Pedido.PaymentStatus.FATURA_A_VENCER)
-                else Pedido.Status.PRE_VENDA
-            )
+        # Regra de domínio: campos de pagamento/status/frete são definidos pelo ERP.
+        pagamento_status = Pedido.PaymentStatus.AGUARDANDO
+        frete_modalidade = Pedido.FreightMode.SEM_FRETE
+        forma_pagamento = ""
+        plano_codigo = ""
+        status_val = Pedido.Status.PRE_VENDA
         vendedor_codigo = (payload.vendedor_codigo or token_vendor_code or "").strip()
         vendedor_nome = (payload.vendedor_nome or "").strip()
 
@@ -1394,21 +1823,27 @@ def _create_pedido_sync(payload: PedidoIn, token_vendor_code: Optional[str] = No
                 status=status_val,
                 pagamento_status=pagamento_status,
                 forma_pagamento=forma_pagamento,
+                plano_codigo=plano_codigo,
                 frete_modalidade=frete_modalidade,
                 vendedor_codigo=vendedor_codigo,
                 vendedor_nome=vendedor_nome,
+                loja_codigo=loja_codigo,
             )
             ItemPedido.objects.bulk_create(
                 [
                     ItemPedido(
                         pedido=pedido,
                         produto=prod,
+                        produto_codigo=getattr(prod, "code", "") or "",
                         quantidade=quant,
                         valor_unitario=valor,
+                        subtotal=quant * valor,
+                        loja_codigo=loja_codigo,
                     )
                     for (prod, quant, valor) in itens_resolvidos
                 ]
             )
+            pedido.recalcular_total(save=True)
         return pedido, True
     except Exception:
         logger.exception("Erro ao criar pedido via API (payload capturado)")
@@ -1417,38 +1852,246 @@ def _create_pedido_sync(payload: PedidoIn, token_vendor_code: Optional[str] = No
 
 def _pedido_to_dict(pedido: Pedido):
     itens_out = []
+    subtotal_itens = Decimal("0")
+    quantidade_total_itens = Decimal("0")
     for item in pedido.itens.all():
         qty = item.quantidade or Decimal("0")
         unit = item.valor_unitario or Decimal("0")
+        subtotal = item.subtotal if item.subtotal is not None else qty * unit
+        subtotal_itens += subtotal
+        quantidade_total_itens += qty
         itens_out.append(
             {
+                "id": item.id,
                 "produto_id": item.produto_id,
                 "produto_codigo": item.produto.code if hasattr(item.produto, "code") else None,
                 "produto_nome": getattr(item.produto, "name", None) or str(item.produto),
                 "quantidade": float(qty),
                 "valor_unitario": float(unit),
-                "subtotal": float(qty * unit),
+                "subtotal": float(subtotal),
+                "loja_codigo": item.loja_codigo,
             }
         )
 
+    pedido_total = pedido.total or Decimal("0")
+    frete_valor = Decimal("0")
+    desconto_valor = Decimal("0")
+    if pedido_total >= subtotal_itens:
+        frete_valor = pedido_total - subtotal_itens
+    else:
+        desconto_valor = subtotal_itens - pedido_total
+
+    cliente = pedido.cliente
+    cliente_nome = f"{cliente.first_name} {cliente.last_name}".strip()
+    totais = {
+        "subtotal": float(subtotal_itens),
+        "descontos": float(desconto_valor),
+        "frete": float(frete_valor),
+        "total": float(pedido_total),
+    }
+
     return {
         "id": pedido.id,
+        "erp_id": pedido.id,
+        "uuid": None,
+        "identificadores": {
+            "id": pedido.id,
+            "erp_id": pedido.id,
+            "uuid": None,
+        },
         "cliente_id": pedido.cliente_id,
         "cliente_nome": str(pedido.cliente),
         "data_criacao": pedido.data_criacao,
         "data_recebimento": pedido.data_recebimento,
-        "total": float(pedido.total),
+        "updated_at": pedido.updated_at,
+        "total": float(pedido_total),
         "status": pedido.status,
         "status_display": pedido.get_status_display(),
         "pagamento_status": pedido.pagamento_status,
         "pagamento_status_display": pedido.get_pagamento_status_display(),
         "forma_pagamento": pedido.forma_pagamento,
+        "plano_codigo": pedido.plano_codigo,
         "frete_modalidade": pedido.frete_modalidade,
         "frete_modalidade_display": pedido.get_frete_modalidade_display(),
-        "vendedor_codigo": pedido.vendedor_codigo,
+        "vendedor_codigo": pedido.resolved_vendedor_codigo,
         "vendedor_nome": pedido.vendedor_nome,
+        "loja_codigo": pedido.loja_codigo,
         "itens": itens_out,
+        "quantidade_itens": len(itens_out),
+        "quantidade_total_itens": float(quantidade_total_itens),
+        "totais": totais,
+        "cliente": {
+            "id": cliente.id,
+            "codigo": cliente.code,
+            "nome": cliente_nome,
+            "documento": cliente.document,
+            "email": cliente.email,
+            "telefone": cliente.phone,
+            "inscricao_estadual": cliente.state_registration,
+            "endereco": {
+                "logradouro": cliente.address,
+                "numero": cliente.number,
+                "complemento": cliente.complement,
+                "bairro": cliente.district,
+                "cidade": cliente.city,
+                "estado": cliente.state,
+                "cep": cliente.zip_code,
+            },
+        },
+        "pagamento": {
+            "status": pedido.pagamento_status,
+            "status_display": pedido.get_pagamento_status_display(),
+            "forma": pedido.forma_pagamento,
+            "plano_codigo": pedido.plano_codigo,
+        },
+        "frete": {
+            "modalidade": pedido.frete_modalidade,
+            "modalidade_display": pedido.get_frete_modalidade_display(),
+            "valor": float(frete_valor),
+            "loja_codigo": pedido.loja_codigo,
+        },
     }
+
+
+def _fetch_pedido_instance(pedido_id: int) -> Pedido:
+    pedido = (
+        Pedido.objects.select_related("cliente")
+        .prefetch_related("itens__produto")
+        .filter(pk=pedido_id)
+        .first()
+    )
+    if not pedido:
+        raise HTTPException(404, "Pedido não encontrado")
+    return pedido
+
+
+def _update_pedido_fields(
+    pedido_id: int,
+    payload: PedidoPatchPayload,
+    usuario: str,
+) -> Pedido:
+    pedido = _fetch_pedido_instance(pedido_id)
+    _ensure_order_editable(pedido)
+    update_fields: list[str] = []
+    changes: list[str] = []
+
+    def _apply_change(field_label: str, attr: str, new_value: Optional[str]) -> None:
+        if new_value is None:
+            return
+        current = getattr(pedido, attr)
+        if current == new_value:
+            return
+        setattr(pedido, attr, new_value)
+        update_fields.append(attr)
+        changes.append(f"{field_label}: {current} -> {new_value}")
+        _log_pedido_change(pedido, usuario, field_label, current, new_value)
+
+    _apply_change("status", "status", payload.status)
+    _apply_change("pagamento_status", "pagamento_status", payload.pagamento_status)
+    _apply_change("forma_pagamento", "forma_pagamento", payload.forma_pagamento)
+    _apply_change("plano_codigo", "plano_codigo", payload.plano_codigo)
+
+    if update_fields:
+        _mark_revision(pedido, usuario, update_fields)
+        pedido.save(update_fields=update_fields)
+        logger.info(
+            "Pedido %s atualizado via API (%s)",
+            pedido.id,
+            "; ".join(changes),
+        )
+    else:
+        logger.info(
+            "Pedido %s patch recebido sem alterações (payload=%s)",
+            pedido.id,
+            payload.dict(exclude_none=True),
+        )
+
+    return pedido
+
+
+def _patch_pedido_item(
+    pedido_id: int,
+    item_id: int,
+    payload: PedidoItemPatchPayload,
+    usuario: str,
+) -> Tuple[Pedido, ItemPedido]:
+    item = (
+        ItemPedido.objects.select_related("pedido")
+        .filter(pk=item_id, pedido_id=pedido_id)
+        .first()
+    )
+    if not item:
+        raise HTTPException(404, "Item não encontrado")
+    pedido = item.pedido
+    _ensure_order_editable(pedido)
+
+    update_fields: list[str] = []
+    pedido_update_fields: list[str] = []
+    if payload.quantidade is not None:
+        before = item.quantidade
+        item.quantidade = payload.quantidade
+        if before != item.quantidade:
+            update_fields.append("quantidade")
+            _log_pedido_change(
+                pedido,
+                usuario,
+                "item_quantidade",
+                before,
+                item.quantidade,
+                item=item,
+            )
+    if payload.valor_unitario is not None:
+        before = item.valor_unitario
+        item.valor_unitario = payload.valor_unitario
+        if before != item.valor_unitario:
+            update_fields.append("valor_unitario")
+            _log_pedido_change(
+                pedido,
+                usuario,
+                "item_valor_unitario",
+                before,
+                item.valor_unitario,
+                item=item,
+            )
+
+    if update_fields:
+        item.save(update_fields=update_fields)
+        logger.info(
+            "Item %s do pedido %s atualizado (%s)",
+            item.id,
+            pedido.id,
+            ", ".join(update_fields),
+        )
+    else:
+        raise HTTPException(400, "Nenhum campo válido informado para atualização.")
+
+    before_total = pedido.total
+    new_total = pedido.recalcular_total(save=False)
+    if new_total != before_total:
+        pedido_update_fields.append("total")
+        _log_pedido_change(
+            pedido,
+            usuario,
+            "total",
+            before_total,
+            new_total,
+        )
+
+    _mark_revision(pedido, usuario, pedido_update_fields)
+    pedido.save(update_fields=pedido_update_fields)
+
+    return pedido, item
+
+
+def _update_pedido_status(pedido_id: int, status: str) -> Pedido:
+    pedido = _fetch_pedido_instance(pedido_id)
+    valid_statuses = {value for value, _ in Pedido.Status.choices}
+    if status not in valid_statuses:
+        raise HTTPException(400, f"Status inválido. Opções: {sorted(valid_statuses)}")
+    if pedido.status != status:
+        pedido.status = status
+        pedido.save(update_fields=["status"])
+    return pedido
 
 
 def _listar_pedidos_sync(limit: int, cliente_id: Optional[str], status: Optional[str]):
@@ -1465,20 +2108,15 @@ def _listar_pedidos_sync(limit: int, cliente_id: Optional[str], status: Optional
 
 
 def _get_pedido_sync(pedido_id: int):
-    pedido = (
-        Pedido.objects.select_related("cliente")
-        .prefetch_related("itens__produto")
-        .filter(pk=pedido_id)
-        .first()
-    )
-    if not pedido:
-        raise HTTPException(404, "Pedido não encontrado")
-    return _pedido_to_dict(pedido)
+    return _pedido_to_dict(_fetch_pedido_instance(pedido_id))
 
 
 @router.post("/pedidos", tags=["pedidos"])
-async def criar_pedido(payload: PedidoIn, token: dict = Depends(require_jwt)):
-    pedido, created = await run_in_threadpool(_create_pedido_sync, payload, token.get("vendor_code"))
+async def criar_pedido(payload: PedidoIn, request: Request, token: dict = Depends(require_jwt)):
+    loja_codigo = determine_request_loja_codigo(request, DEFAULT_LOJA_CODIGO)
+    pedido, created = await run_in_threadpool(
+        _create_pedido_sync, payload, token.get("vendor_code"), loja_codigo
+    )
     status_code = 201 if created else 200
     mensagem = "Pedido criado com sucesso" if created else "Pedido já recebido recentemente"
     return JSONResponse(
@@ -1506,17 +2144,58 @@ async def listar_pedidos(
 ):
     if status and status not in PEDIDO_STATUS_VALUES:
         raise HTTPException(400, f"Status inválido. Opções: {sorted(PEDIDO_STATUS_VALUES)}")
-    return await run_in_threadpool(_listar_pedidos_sync, limit, cliente_id, status)
+    payload = await run_in_threadpool(_listar_pedidos_sync, limit, cliente_id, status)
+    return JSONResponse(
+        payload,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 
 @router.get("/pedidos/{pedido_id}", tags=["pedidos"])
 async def detalhar_pedido(pedido_id: int, token: dict = Depends(require_jwt)):
-    return await run_in_threadpool(_get_pedido_sync, pedido_id)
+    payload = await run_in_threadpool(_get_pedido_sync, pedido_id)
+    return JSONResponse(
+        payload,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
+
+
+@router.patch("/pedidos/{pedido_id}", tags=["pedidos"])
+async def atualizar_pedido(
+    pedido_id: int,
+    payload: PedidoPatchPayload,
+    token: dict = Depends(require_jwt),
+):
+    raise HTTPException(403, "Edição de pedido permitida somente via ERP (Django interno).")
+
+
+@router.patch("/pedidos/{pedido_id}/itens/{item_id}", tags=["pedidos"])
+async def atualizar_item_pedido(
+    pedido_id: int,
+    item_id: int,
+    payload: PedidoItemPatchPayload,
+    token: dict = Depends(require_jwt),
+):
+    raise HTTPException(403, "Edição de itens permitida somente via ERP (Django interno).")
+
+
+@router.patch("/pedidos/{pedido_id}/status", tags=["pedidos"])
+async def atualizar_status_pedido(
+    pedido_id: int,
+    payload: PedidoStatusUpdate,
+    token: dict = Depends(require_jwt),
+):
+    raise HTTPException(403, "Atualização de status permitida somente via ERP (Django interno).")
 
 
 @router.post("/pedidos-venda", tags=["pedidos"])
-async def criar_pedido_venda(payload: PedidoIn, token: dict = Depends(require_jwt)):
-    pedido, created = await run_in_threadpool(_create_pedido_sync, payload, token.get("vendor_code"))
+async def criar_pedido_venda(
+    payload: PedidoIn, request: Request, token: dict = Depends(require_jwt)
+):
+    loja_codigo = determine_request_loja_codigo(request, DEFAULT_LOJA_CODIGO)
+    pedido, created = await run_in_threadpool(
+        _create_pedido_sync, payload, token.get("vendor_code"), loja_codigo
+    )
     if created:
         return {
             "id": pedido.id,
@@ -1537,12 +2216,43 @@ async def listar_pedidos_venda(
     status: Optional[str] = None,
     token: dict = Depends(require_jwt),
 ):
-    return await run_in_threadpool(_listar_pedidos_sync, limit, cliente_id, status)
+    payload = await run_in_threadpool(_listar_pedidos_sync, limit, cliente_id, status)
+    return JSONResponse(
+        payload,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
 
 
 @router.get("/pedidos-venda/{pedido_id}", tags=["pedidos"])
 async def detalhar_pedido_venda(pedido_id: int, token: dict = Depends(require_jwt)):
-    return await run_in_threadpool(_get_pedido_sync, pedido_id)
+    payload = await run_in_threadpool(_get_pedido_sync, pedido_id)
+    return JSONResponse(
+        payload,
+        headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+    )
+
+
+@router.post("/sync/pedido-update", tags=["sync"])
+async def sync_pedido_update(
+    payload: PedidoSyncUpdateRequest,
+    token: dict = Depends(require_internal_sync),
+):
+    return await run_in_threadpool(_get_pedido_sync, payload.pedido_id)
+
+
+@router.get(
+    "/meta/enums",
+    response_model=MetaEnumsResponse,
+    tags=["meta"],
+    summary="Enumerações públicas utilizadas pela API",
+    description="Retorna todos os valores e rótulos dos enums usados nas APIs de pedidos.",
+)
+async def listar_meta_enums(token: dict = Depends(require_jwt)):
+    return MetaEnumsResponse(
+        pedido_status=_serialize_text_choices(Pedido.Status),
+        pagamento_status=_serialize_text_choices(Pedido.PaymentStatus),
+        frete_modalidade=_serialize_text_choices(Pedido.FreightMode),
+    )
 
 
 app.include_router(router)

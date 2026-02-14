@@ -1,0 +1,23 @@
+[Unit]
+Description=API Force FastAPI (Edson)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/apps/Django
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/home/ubuntu/apps/Django/.env.edson
+ExecStart=/home/ubuntu/apps/Django/venv/bin/uvicorn erp_api:app --host 127.0.0.1 --port 9000 --proxy-headers --forwarded-allow-ips="*"
+Restart=always
+RestartSec=5
+NoNewPrivileges=no
+PrivateNetwork=no
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

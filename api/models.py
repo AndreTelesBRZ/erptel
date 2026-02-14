@@ -27,7 +27,7 @@ class ProdutoSync(models.Model):
 class PlanoPagamentoCliente(models.Model):
     cliente_codigo = models.CharField(max_length=20)
     plano_codigo = models.CharField(max_length=20)
-    descricao = models.CharField(max_length=255, blank=True)
+    plano_descricao = models.CharField(max_length=255, blank=True, db_column="plano_descricao")
     entrada_percentual = models.DecimalField(max_digits=18, decimal_places=6, null=True, blank=True)
     intervalo_primeira_parcela = models.IntegerField(null=True, blank=True)
     intervalo_parcelas = models.IntegerField(null=True, blank=True)
@@ -48,6 +48,14 @@ class PlanoPagamentoCliente(models.Model):
             models.Index(fields=["cliente_codigo"], name="idx_plano_pag_cli"),
         ]
         app_label = "api"
+
+    @property
+    def descricao(self) -> str:
+        return self.plano_descricao
+
+    @descricao.setter
+    def descricao(self, value: str) -> None:
+        self.plano_descricao = value or ""
 
 
 class Loja(models.Model):

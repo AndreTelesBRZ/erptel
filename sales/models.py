@@ -265,6 +265,7 @@ class Pedido(models.Model):
 	)
 	vendedor_codigo = models.CharField(_('Código do vendedor'), max_length=50, blank=True)
 	vendedor_nome = models.CharField(_('Nome do vendedor'), max_length=150, blank=True)
+	loja_codigo = models.CharField(_('Código da loja'), max_length=10, default='000001')
 
 	class Meta:
 		verbose_name = _('Pedido (API)')
@@ -279,6 +280,7 @@ class ItemPedido(models.Model):
 	produto = models.ForeignKey('products.Product', on_delete=models.PROTECT)
 	quantidade = models.DecimalField(max_digits=10, decimal_places=2)
 	valor_unitario = models.DecimalField(max_digits=10, decimal_places=2)
+	loja_codigo = models.CharField(_('Código da loja'), max_length=10, default='000001')
 
 	class Meta:
 		verbose_name = _('Item do Pedido (API)')

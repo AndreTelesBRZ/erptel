@@ -7,12 +7,11 @@ from rest_framework.views import APIView
 from rest_framework.authtoken.views import ObtainAuthToken
 from rest_framework.authtoken.models import Token
 
-from .models import ProdutoSync, PlanoPagamentoCliente, Loja
+from .models import ProdutoSync, Loja
 from .serializers import (
 	ProdutoSyncSerializer,
 	PedidoSerializer,
 	ClienteSyncSerializer,
-	PlanoPagamentoClienteSerializer,
 	LojaSerializer,
 )
 from core.forms import SefazConfigurationForm
@@ -207,62 +206,6 @@ class CompanyNFeAPIView(APIView):
 		})
 
 
-class PlanoPagamentoClienteAPIView(APIView):
-	permission_classes = [HasAppToken]
-
-	def get(self, request, cliente_codigo: str = ""):
-		cliente_codigo = (cliente_codigo or request.query_params.get("cliente_codigo") or "").strip()
-		if not cliente_codigo:
-			return Response({"detail": "Informe o código do cliente."}, status=status.HTTP_400_BAD_REQUEST)
-
-		qs = PlanoPagamentoCliente.objects.filter(cliente_codigo=cliente_codigo).order_by("plano_codigo")
-		data = PlanoPagamentoClienteSerializer(qs, many=True).data
-		return Response(
-			{
-				"cliente_codigo": cliente_codigo,
-				"total": len(data),
-				"data": data,
-			}
-		)
-
-
-class PlanoPagamentoClienteSyncAPIView(APIView):
-	permission_classes = [HasAppToken]
-
-	def post(self, request):
-		payload = request.data
-		if isinstance(payload, dict) and "data" in payload:
-			payload = payload["data"]
-		if not isinstance(payload, list):
-			return Response({"detail": "Envie uma lista de planos."}, status=status.HTTP_400_BAD_REQUEST)
-
-		serializer = PlanoPagamentoClienteSerializer(data=payload, many=True)
-		serializer.is_valid(raise_exception=True)
-
-		now = timezone.now()
-		plans = [
-			PlanoPagamentoCliente(updated_at=now, **item)
-			for item in serializer.validated_data
-		]
-		if plans:
-			PlanoPagamentoCliente.objects.bulk_create(
-				plans,
-				update_conflicts=True,
-				unique_fields=["cliente_codigo", "plano_codigo"],
-				update_fields=[
-					"descricao",
-					"entrada_percentual",
-					"intervalo_primeira_parcela",
-					"intervalo_parcelas",
-					"quantidade_parcelas",
-					"valor_acrescimo",
-					"valor_minimo",
-					"updated_at",
-				],
-			)
-
-		return Response({"status": "ok", "total": len(plans)})
-
 
 class LojaSyncAPIView(APIView):
 	permission_classes = [HasAppToken]
@@ -312,6 +255,7 @@ class PedidoViewSet(mixins.CreateModelMixin,
 					mixins.RetrieveModelMixin,
 					viewsets.GenericViewSet):
 	permission_classes = [HasAppToken]
+	http_method_names = ["get", "post", "head", "options"]
 	serializer_class = PedidoSerializer
 	queryset = (
 		Pedido.objects
@@ -386,3 +330,14 @@ class ReceberPedidoView(APIView):
 				status=status.HTTP_201_CREATED,
 			)
 		return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class PedidoDetailAPIView(APIView):
+	permission_classes = [HasAppToken]
+
+	def get(self, request, pk: int):
+		pedido = get_object_or_404(
+			Pedido.objects.select_related('cliente').prefetch_related('itens__produto'),
+			pk=pk,
+		)
+		return Response(PedidoSerializer(pedido, context={"request": request}).data)
